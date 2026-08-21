@@ -30,6 +30,7 @@ MARKET_OPS = {"BUY_SEED", "BUY_ANIMAL", "BUY_PRODUCT", "SELL", "HIRE", "BUY_LAND
 _CROPS = {"WHEAT", "CARROT", "TOMATO", "STRAWBERRY", "MELON"}
 _ANIMALS = {"GOOSE", "COW", "SHEEP"}
 _PRODUCTS = _CROPS | {"EGG", "MILK", "WOOL", "FERTILIZER"}
+_ANIMAL_STRUCTURE = {"GOOSE": "COOP", "COW": "PASTURE", "SHEEP": "PASTURE"}
 
 
 def validate_action(
@@ -180,6 +181,22 @@ def _validate_unit_legality(
         raise ValueError("collection requires available animal fertilizer")
     if op == "PLACE" and _positive_or_zero(inventory.get(command[1])) < 1:
         raise ValueError("place requires item in unit inventory")
+    if (
+        op == "PLACE"
+        and command[1] in _ANIMALS
+        and (
+            not isinstance(tile, dict)
+            or tile.get("kind") != _ANIMAL_STRUCTURE[command[1]]
+            or tile.get("animal")
+        )
+    ):
+        raise ValueError("animal placement requires matching empty structure")
+    if op == "PLACE" and command[1] not in _ANIMALS and not access:
+        raise ValueError("product placement requires shed access tile")
+    if op in {"BUILD_COOP", "BUILD_PASTURE"} and tile is not None:
+        raise ValueError("building requires an empty tile")
+    if op == "DIG" and (tile is None or (isinstance(tile, dict) and tile.get("animal"))):
+        raise ValueError("dig cannot remove an empty tile or animal")
 
 
 def _shed_access(x: int, y: int, board_size: int) -> bool:
