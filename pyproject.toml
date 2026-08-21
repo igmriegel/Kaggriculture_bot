@@ -1,0 +1,30 @@
+[project]
+name = "kaggriculture-bot"
+version = "0.1.0"
+description = "A reproducible harness and extensible agent for Kaggriculture."
+requires-python = ">=3.14"
+dependencies = ["pydantic>=2.11,<3"]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2,<5",
+    "pytest>=8.3,<9",
+    "ruff>=0.12,<0.13",
+    "ty>=0.0.1a0",
+]
+competition = ["kaggle-environments>=1.18,<2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.uv]
+default-groups = ["dev"]
