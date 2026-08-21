@@ -1,6 +1,7 @@
 """Built-in extension registrations kept separate from the public facade."""
 
 from agent.engines.heuristic import ConservativeHeuristic
+from agent.engines.heuristic_v1 import HeuristicV1
 from agent.harness.adapters.kaggle import KaggleEnvironmentAdapter
 from agent.harness.models import Scenario
 from agent.harness.registry import (
@@ -18,6 +19,8 @@ def register_builtins() -> None:
         register_adapter("kaggriculture", KaggleEnvironmentAdapter)
     if "heuristic" not in _names("agent"):
         register_agent("heuristic", ConservativeHeuristic())
+    if "heuristic-v1" not in _names("agent"):
+        register_agent("heuristic-v1", HeuristicV1())
     if "json" not in _names("reporter"):
         register_reporter("json", JsonReporter)
     if "jsonl" not in _names("reporter"):
@@ -33,6 +36,22 @@ def register_builtins() -> None:
                 seeds=(42,),
             ),
         )
+    for name, opponent, seeds in (
+        ("v1-pass", "pass", (42, 43)),
+        ("v1-random", "random", (42, 43)),
+        ("v1-self-play", "heuristic-v1", (42, 43)),
+    ):
+        if name not in _names("scenario"):
+            register_scenario(
+                name,
+                Scenario(
+                    name=name,
+                    adapter="kaggriculture",
+                    agent="heuristic-v1",
+                    opponent=opponent,
+                    seeds=seeds,
+                ),
+            )
 
 
 def _names(kind: str) -> tuple[str, ...]:

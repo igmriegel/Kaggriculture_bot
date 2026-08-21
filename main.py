@@ -3,9 +3,9 @@
 from typing import Any
 
 from agent.core.validation import validate_action
-from agent.engines.heuristic import ConservativeHeuristic
+from agent.engines.heuristic_v1 import HeuristicV1
 
-_ENGINE = ConservativeHeuristic()
+_ENGINE = HeuristicV1()
 
 
 def agent(obs: dict[str, Any], configuration: dict[str, Any] | None = None) -> dict[str, Any]:

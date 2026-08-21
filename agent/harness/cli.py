@@ -1,7 +1,9 @@
 """Command-line interface for local harness workflows."""
 
 import argparse
+import random
 import tarfile
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +33,8 @@ def main(argv: list[str] | None = None) -> int:
     report.add_argument("--input", required=True)
     validate = commands.add_parser("validate-submission")
     validate.add_argument("--path", required=True)
+    package = commands.add_parser("package-submission")
+    package.add_argument("--output", default="dist/kaggriculture-submission.tar.gz")
     args = parser.parse_args(argv)
     if args.command in {"run", "smoke"}:
         return _run(args)
@@ -38,6 +42,8 @@ def main(argv: list[str] | None = None) -> int:
         return _benchmark(args)
     if args.command == "report":
         return _report(args)
+    if args.command == "package-submission":
+        return _package_submission(args)
     return _validate_submission(args)
 
 
@@ -53,7 +59,7 @@ def _run(args: argparse.Namespace) -> int:
 
 def _execute(args: argparse.Namespace, *, output_dir: str, episode_id: str):
     adapter_factory: Any = get_adapter(args.adapter)
-    environment = adapter_factory()
+    environment = adapter_factory(opponent=_opponent_for(args.opponent, args.seed))
     agent = get_agent(args.agent)
     config = RunConfig(
         seed=args.seed,
@@ -118,4 +124,45 @@ def _validate_submission(args: argparse.Namespace) -> int:
         print("submission must contain main.py at its root")
         return 1
     print("submission layout is valid")
+    return 0
+
+
+def _opponent_for(name: str, seed: int):
+    if name == "pass":
+        return lambda observation: {"farmer": ["PASS"], "market": []}
+    if name == "random":
+        generator = random.Random(seed)
+        return lambda observation: {
+            "farmer": [generator.choice(("PASS", "NORTH", "SOUTH", "EAST", "WEST"))],
+            "market": [],
+        }
+    return get_agent(name).act
+
+
+def _package_submission(args: argparse.Namespace) -> int:
+    """Create a minimal, root-main submission archive and validate it in isolation."""
+    root = Path(__file__).resolve().parents[2]
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    runtime_files = [root / "main.py", *sorted((root / "agent").rglob("*.py"))]
+    with tarfile.open(output, "w:gz") as archive:
+        for source in runtime_files:
+            archive.add(source, arcname=source.relative_to(root))
+    with tempfile.TemporaryDirectory(prefix="kaggriculture-submission-") as temporary:
+        with tarfile.open(output) as archive:
+            archive.extractall(temporary, filter="data")
+        isolated = Path(temporary)
+        if not (isolated / "main.py").is_file():
+            print("package validation failed: main.py is not at archive root")
+            return 1
+        # Ensure no reports, local graph artefacts, or development files escaped.
+        forbidden = {"reports", "graphify-out", ".venv", "tests", "docs"}
+        if any(
+            path.relative_to(isolated).parts[0] in forbidden
+            for path in isolated.rglob("*")
+            if path.relative_to(isolated).parts
+        ):
+            print("package validation failed: archive contains non-runtime material")
+            return 1
+    print(f"created and isolated-validated {output}")
     return 0
