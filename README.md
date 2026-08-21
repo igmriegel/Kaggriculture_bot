@@ -139,10 +139,12 @@ Useful references:
 
 ## Status
 
-The project has a validated local harness and an isolated, packageable V1
-candidate. Official full-horizon benchmark evidence and richer farm mechanics
-remain the next milestones. See the [backlog](docs/operations/BACKLOG.md) for
-the exact follow-up work.
+The `competitive` crop-first candidate has passed the local official 20-seed
+development and 20-seed confirmation matrices against PASS, the official
+random agent, and V1 with zero fallbacks. Read the
+[engine evidence](docs/operations/ENGINE_EVIDENCE.md) for exact results and
+reproduction commands. Richer expansion is intentionally gated on preserving
+that evidence.
 
 ---
 
