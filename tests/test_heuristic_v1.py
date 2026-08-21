@@ -24,6 +24,11 @@ def test_v1_plants_only_available_seed_at_current_empty_tile() -> None:
     assert HeuristicV1().act(observation(None, seeds={"WHEAT": 1}))["farmer"] == ["PLANT", "WHEAT"]
 
 
+def test_v1_buys_one_seed_when_cash_is_above_reserve() -> None:
+    action = HeuristicV1().act(observation(None, market={"prices": {"WHEAT": 25}}))
+    assert action["market"] == [["BUY_SEED", "WHEAT", 1]]
+
+
 def test_v1_uses_market_price_for_liquidation() -> None:
     action = HeuristicV1().act(
         observation(

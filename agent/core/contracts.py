@@ -1,5 +1,7 @@
 """Typed boundaries around the official Kaggriculture protocol."""
 
+from __future__ import annotations
+
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field

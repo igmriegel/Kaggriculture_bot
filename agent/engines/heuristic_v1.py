@@ -40,6 +40,7 @@ class HeuristicV1Config:
     reserve_cash: int = 10
     closing_turns: int = 24
     seed_name: str = "WHEAT"
+    seed_order_units: int = 1
 
 
 class TaskPlanner(Protocol):
@@ -96,6 +97,8 @@ class HeuristicV1:
                 return Task(TaskKind.SELL, item=item)
         if current and current.kind is None and state.seeds.get(self.config.seed_name, 0) > 0:
             return Task(TaskKind.PLANT, item=self.config.seed_name)
+        if self._can_buy_seed(state, current):
+            return Task(TaskKind.BUY, item=self.config.seed_name)
         item = self.market.best_inventory_item(state)
         if item and state.inventory[item] > 0:
             return Task(TaskKind.SELL, item=item)
@@ -113,6 +116,11 @@ class HeuristicV1:
             return Action(farmer=["FERTILIZE"])
         if task.kind is TaskKind.PLANT and task.item:
             return Action(farmer=["PLANT", task.item])
+        if task.kind is TaskKind.BUY and task.item:
+            return Action(
+                farmer=["PASS"],
+                market=[["BUY_SEED", task.item, self.config.seed_order_units]],
+            )
         if task.kind is TaskKind.SELL and task.item:
             return Action(farmer=["PASS"], market=[["SELL", task.item, 1]])
         if task.kind is TaskKind.MOVE and task.target:
@@ -122,6 +130,17 @@ class HeuristicV1:
     def _closing(self, state: NormalizedState) -> bool:
         return (
             state.time_remaining is not None and state.time_remaining <= self.config.closing_turns
+        )
+
+    def _can_buy_seed(self, state: NormalizedState, current: object) -> bool:
+        price = state.prices.get(self.config.seed_name)
+        return (
+            current is not None
+            and getattr(current, "kind", "occupied") is None
+            and state.hour == 0
+            and state.seeds.get(self.config.seed_name, 0) == 0
+            and price is not None
+            and state.money - price * self.config.seed_order_units >= self.config.reserve_cash
         )
 
 

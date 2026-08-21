@@ -5,6 +5,8 @@ normalizes fields that are present and keeps unknown protocol details out of
 strategy code.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -76,7 +78,9 @@ class NormalizedState:
             position=(x, y),
             tiles=tuple(tiles),
             seeds=_quantities(private.get("seeds")),
-            inventory=_quantities(private.get("inventory", farm.get("inventory"))),
+            inventory=_quantities(
+                private.get("inventory", private.get("shed", farm.get("inventory")))
+            ),
             prices=_prices(market),
             demand=_quantities(town.get("demand") if isinstance(town, dict) else {}),
             time_remaining=_optional_integer(observation.get("time_remaining")),
