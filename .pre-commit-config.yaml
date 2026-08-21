@@ -5,12 +5,17 @@ repos:
       - id: ruff-check
         args: [--fix]
       - id: ruff-format
-  - repo: https://github.com/astral-sh/ty-pre-commit
-    rev: 0.0.1-alpha.1
+  - repo: local
     hooks:
-      - id: ty-check
-        args: [agent, tests]
-  - repo: https://github.com/pytest-dev/pytest
-    rev: 8.3.5
+      - id: ty
+        name: ty type check
+        entry: uv run ty check agent tests
+        language: system
+        pass_filenames: false
+  - repo: local
     hooks:
       - id: pytest
+        name: pytest
+        entry: uv run pytest
+        language: system
+        pass_filenames: false
