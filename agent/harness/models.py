@@ -1,26 +1,74 @@
-"""Pydantic records emitted by the harness."""
+"""Versioned models emitted and consumed by the harness."""
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+ARTIFACT_SCHEMA_VERSION = 1
+EpisodeStatus = Literal[
+    "win", "loss", "tie", "agent_error", "environment_error", "timeout", "incomplete"
+]
+
+
+class RunConfig(BaseModel):
+    """Execution limits and artifact settings for one episode."""
+
+    model_config = ConfigDict(frozen=True)
+
+    seed: int | None = None
+    max_turns: int = 720
+    action_timeout_ms: int | None = None
+    log_turns: bool = False
+    output_dir: str | None = None
+    configuration: dict[str, Any] = Field(default_factory=dict)
+
+
+class Scenario(BaseModel):
+    """Serializable, reproducible matrix entry used by benchmark execution."""
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    adapter: str
+    agent: str
+    opponent: str
+    seeds: tuple[int, ...]
+    configuration: dict[str, Any] = Field(default_factory=dict)
 
 
 class TurnRecord(BaseModel):
+    schema_version: int = ARTIFACT_SCHEMA_VERSION
     turn: int
     action_raw: Any = None
     action_sent: dict[str, Any]
+    observation_hash: str | None = None
     fallback_reason: str | None = None
     exception: str | None = None
+    latency_ms: float | None = None
 
 
 class EpisodeRecord(BaseModel):
+    schema_version: int = ARTIFACT_SCHEMA_VERSION
     episode_id: str
     seed: int | None = None
     agent: str
     opponent: str
-    status: Literal["win", "loss", "tie", "error", "incomplete"]
+    status: EpisodeStatus
     turns: int
-    result: Any = None
+    configuration: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] | None = None
+    raw_result: Any = None
     errors: int = 0
     fallbacks: int = 0
     turns_log: list[TurnRecord] = Field(default_factory=list)
+
+
+class BenchmarkReport(BaseModel):
+    """Comparable aggregate for one scenario fingerprint."""
+
+    schema_version: int = ARTIFACT_SCHEMA_VERSION
+    scenario: Scenario
+    scenario_fingerprint: str
+    episodes: list[EpisodeRecord] = Field(default_factory=list)
+    win_rate: float | None = None
+    average_money: float | None = None

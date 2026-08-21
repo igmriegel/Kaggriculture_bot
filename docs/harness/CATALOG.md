@@ -16,7 +16,10 @@ same commit as any public API change.
 | `Reporter` | `agent.harness.Reporter` | harness | receives turn/episode events | implement and register a reporter | reporting tests |
 | `Scenario` | `agent.harness.Scenario` | harness | immutable run matrix entry | add serializable config only | scenario tests |
 | `EpisodeRunner` | `agent.harness.EpisodeRunner` | harness | one episode orchestration | extend via config/reporters, not strategy | runner tests |
-| `register_*` / `get_*` | `agent.harness` | harness | explicit discovery registries | use unique stable names | registry tests |
+| `register_adapter` / `get_adapter` | `agent.harness.register_adapter` / `agent.harness.get_adapter` | harness | adapter discovery | use unique stable names | registry tests |
+| `register_agent` / `get_agent` | `agent.harness.register_agent` / `agent.harness.get_agent` | harness | agent discovery | use unique stable names | registry tests |
+| `register_reporter` / `get_reporter` | `agent.harness.register_reporter` / `agent.harness.get_reporter` | harness | reporter discovery | use unique stable names | registry tests |
+| `register_scenario` / `get_scenario` | `agent.harness.register_scenario` / `agent.harness.get_scenario` | harness | scenario discovery | use unique stable names | registry tests |
 
 ## Catalog invariants
 
