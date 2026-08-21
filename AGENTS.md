@@ -79,6 +79,11 @@ document. The minimal heuristic must describe its decision policy, safety
 fallbacks, assumptions, and benchmark protocol. Use Mermaid or similarly
 versionable diagrams to show the decision and execution flow.
 
+When `graphify-out/graph.json` exists, use Graphify first for codebase
+architecture, symbol-relationship, and data-flow questions. Its generated
+artifacts are local development evidence, are ignored by Git, and must not be
+included in a submission package. See `docs/operations/GRAPHIFY.md`.
+
 ## Git and collaboration
 
 - Keep commits atomic: one coherent change per commit.

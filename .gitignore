@@ -1,0 +1,3 @@
+# Graphify generates a local, queryable knowledge graph from the working tree.
+# Rebuild it locally; do not ship generated graph artifacts in source or submission packages.
+graphify-out/

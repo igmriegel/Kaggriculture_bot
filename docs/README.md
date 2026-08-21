@@ -13,6 +13,7 @@ once per work session, then use the task router below.
 | Change game contracts | [`architecture/ARCHITECTURE.md`](architecture/ARCHITECTURE.md) | `agent/core/` |
 | Change an engine | [`engines/HEURISTIC_MVP.md`](engines/HEURISTIC_MVP.md) | `agent/engines/` |
 | Benchmark or submit | [`operations/BENCHMARKS.md`](operations/BENCHMARKS.md) | [`operations/SUBMISSION.md`](operations/SUBMISSION.md) |
+| Query code relationships | [`operations/GRAPHIFY.md`](operations/GRAPHIFY.md) | `graphify-out/graph.json` |
 | Choose or review a design | [`architecture/DECISIONS.md`](architecture/DECISIONS.md) | [`operations/BACKLOG.md`](operations/BACKLOG.md) |
 
 ## Documentation ownership
