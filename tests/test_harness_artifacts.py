@@ -1,3 +1,4 @@
+from time import sleep
 from typing import Any
 
 from agent.harness.execution import EpisodeRunner
@@ -44,3 +45,13 @@ def test_agent_error_is_not_masked_by_environment_completion() -> None:
     )
     assert record.status == "agent_error"
     assert record.fallbacks == 1
+
+
+def test_runner_classifies_slow_action_as_timeout() -> None:
+    def slow_agent(observation: dict[str, Any]) -> dict[str, list[str]]:
+        del observation
+        sleep(0.001)
+        return {"farmer": ["PASS"], "market": []}
+
+    record = EpisodeRunner(RunConfig(action_timeout_ms=0)).run(CompletedEnvironment(), slow_agent)
+    assert record.status == "timeout"
