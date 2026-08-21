@@ -1,19 +1,22 @@
 """Explicit registries that make harness extensions discoverable."""
 
 from collections.abc import Iterator
+from typing import Generic, TypeVar
 
 from agent.harness.models import Scenario
 from agent.harness.protocols import Agent, EnvironmentAdapter, Reporter
 
+RegistryItem = TypeVar("RegistryItem")
 
-class Registry[T]:
+
+class Registry(Generic[RegistryItem]):
     """Named registry with actionable lookup and duplicate diagnostics."""
 
     def __init__(self, kind: str) -> None:
         self.kind = kind
-        self._items: dict[str, T] = {}
+        self._items: dict[str, RegistryItem] = {}
 
-    def register(self, name: str, item: T) -> T:
+    def register(self, name: str, item: RegistryItem) -> RegistryItem:
         if not name or name.strip() != name:
             raise ValueError(f"{self.kind} name must be non-empty and trimmed")
         if name in self._items:
@@ -21,7 +24,7 @@ class Registry[T]:
         self._items[name] = item
         return item
 
-    def get(self, name: str) -> T:
+    def get(self, name: str) -> RegistryItem:
         try:
             return self._items[name]
         except KeyError as exc:
@@ -31,7 +34,7 @@ class Registry[T]:
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._items))
 
-    def __iter__(self) -> Iterator[tuple[str, T]]:
+    def __iter__(self) -> Iterator[tuple[str, RegistryItem]]:
         return iter(sorted(self._items.items()))
 
 

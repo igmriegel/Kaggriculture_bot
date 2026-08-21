@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
 
-type Scalar = str | int | float | bool
+Scalar: TypeAlias = str | int | float | bool  # noqa: UP040 - Kaggle runs Python 3.11.
 
 
 class Action(BaseModel):

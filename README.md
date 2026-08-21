@@ -26,7 +26,7 @@ back to `PASS` rather than crashing.
 
 ## Quick start
 
-The project targets **Python 3.14+** and uses [uv](https://docs.astral.sh/uv/).
+The project targets **Python 3.11+** and uses [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone <your-fork-url>

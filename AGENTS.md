@@ -35,7 +35,7 @@ not in environment adapters or runners.
 
 ## Technical standards
 
-- Python 3.14 or newer, managed with `uv`.
+- Python 3.11 or newer, managed with `uv`. The submission runtime is Python 3.11.
 - Use Pydantic for externally-facing and normalized contracts where practical.
 - Use Ruff for formatting and linting.
 - Use Astral's `ty` for type checking.
