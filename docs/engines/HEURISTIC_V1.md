@@ -1,36 +1,65 @@
 # Heuristic V1
 
-`heuristic-v1` is the deterministic, submission-ready complete-farm safety
-candidate. It reads only normalized fields that are present in the official
-observation; unknown fields remain outside the policy until captured in an
-official fixture.
+`heuristic-v1` is the deterministic, submission-ready safety baseline. It is
+not yet the crop-and-shed economic policy described below. It reads only
+normalized fields once available; unknown fields remain outside the policy
+until captured in an official fixture.
 
 ```mermaid
 flowchart TD
     O[Raw observation] --> N[NormalizedState]
-    N --> H{Harvestable crop?}
-    H -- yes --> A[HARVEST]
-    H -- no --> W{Unwatered crop?}
-    W -- yes --> B[WATER]
-    W -- no --> C{Closing season / inventory?}
-    C -- yes --> D[SELL highest priced item]
-    C -- no --> P{Seed and empty current tile?}
-    P -- yes --> E[PLANT WHEAT]
-    P -- no --> M[Move to nearest empty tile or PASS]
+    N --> O{New planting needs water?}
+    O -- yes --> W[WATER same day]
+    O -- no --> L{Loss or yield obligation?}
+    L -- weed --> D[DIG weed]
+    L -- unwatered plant --> W
+    L -- mature yield --> H[HARVEST]
+    L -- animal care/feed --> C[CARE / FEED]
+    L -- none --> S{Shed headroom and market slot?}
+    S -- yes --> G[Route, deposit, buy or sell]
+    S -- no --> P[PASS or create capacity]
 ```
 
-## Policy and safety
+## Verified policy basis and staged policy
 
-The task order is harvest, water, liquidation, plant, buy one wheat seed, sale,
-move, and PASS. The purchase happens only at the beginning of a day when its
-known price leaves the configured cash reserve intact. This makes crop
-preservation and inventory release dominate discretionary growth. Market
-selection uses the highest present numeric price. The current implementation
-deliberately does not hire, build, care for animals, or fertilize: their exact
-preconditions are not yet covered by official fixtures. Those action families
-remain explicit backlog work, not invented mechanics.
+The source environment establishes these planning constraints:
 
-`HeuristicV1Config` exposes the close-out threshold (`closing_turns`, default
+- A planted crop starts unwatered; missing water on planting day contributes to
+  its two consecutive-unwatered-day loss rule. Plants become weeds when that
+  threshold is reached.
+- Crop yield is bounded by each crop’s first-yield day, maximum yield day,
+  interval, and maximum held yield. Fertilizer applies for the current day plus
+  two more days and gives its production bonus only on watered days.
+- Animals escape after two consecutive missed feeding days. Care banks a
+  production bonus when it is paired with feeding; feeding consumes wheat from
+  the unit inventory.
+- At day end, every farmer/hand inventory is deposited into the shed up to its
+  capacity; overflow is discarded. Seeds are separate from shed capacity.
+- The market silently drops orders after its configured per-turn limit. A full
+  season lasts 720 turns (30 days at the default 24 turns per day).
+
+V2 therefore schedules obligations before economics: water a new planting on
+the same day; water/fertilize eligible crops; harvest at an explicit yield
+threshold; remove weeds; then route units to collect, access the shed, deposit,
+and sell without overflow or order-limit violations. Crop purchases compare
+reserve cash, remaining season time, expected return per tile/day, route cost,
+current price, and capacity.
+
+V3 adds hands and land only after the crop/shed obligations are reliable. The
+planner emits one action for every hand in official order and revalidates each
+position and inventory per turn. It hires only where expected saved farmer
+actions exceed the day’s Fibonacci hire cost, and buys land only with safe
+obligations, shed headroom, and reserve cash. Land prices follow the verified
+`$1,000`, `$2,000`, `$4,000` sequence.
+
+V4 adds coop/pasture construction, animal placement and pickup/drop, feeding,
+care, fertilizer collection, and production scheduling. It models wheat-feed
+obligations and irreversible loss before expansion. Market valuation uses
+current price, town-center intervals, repeated unlocked shop instances, order
+position, expected demand drain, and glut risk. It ends with closing-season
+liquidation so money—not unsold inventory—remains at terminal reward.
+
+`HeuristicV1Config` currently exposes the close-out threshold (`closing_turns`, default
 24), reserve policy (`reserve_cash`, default 10), seed choice (`WHEAT`), and
 seed order size (default 1). All generated output is passed through
 `core.validate_action` by `main.agent` and the harness.
