@@ -37,6 +37,7 @@ class NormalizedState:
     step: int
     position: tuple[int, int]
     hand_positions: tuple[tuple[int, int], ...]
+    unlocked_quadrants: tuple[str, ...]
     tiles: tuple[Tile, ...]
     seeds: dict[str, int]
     inventory: dict[str, int]
@@ -44,6 +45,8 @@ class NormalizedState:
     unit_inventories: tuple[dict[str, int], ...]
     shed_capacity: int
     prices: dict[str, float]
+    market_inventory: dict[str, int]
+    shops: tuple[str, ...]
     demand: dict[str, int]
     time_remaining: int | None
 
@@ -103,6 +106,11 @@ class NormalizedState:
                 for pos in hands
                 if isinstance(pos, list) and len(pos) >= 2
             ),
+            unlocked_quadrants=tuple(
+                quadrant
+                for quadrant in farm.get("unlocked_quadrants", [])
+                if isinstance(quadrant, str)
+            ),
             tiles=tuple(tiles),
             seeds=_quantities(private.get("seeds")),
             inventory=shed,
@@ -110,6 +118,12 @@ class NormalizedState:
             unit_inventories=unit_inventories,
             shed_capacity=_integer(observation.get("shedCapacity", 100)) or 100,
             prices=_prices(market),
+            market_inventory=_quantities(
+                market.get("inventory") if isinstance(market, dict) else {}
+            ),
+            shops=tuple(shop for shop in town.get("unlocked_shops", []) if isinstance(shop, str))
+            if isinstance(town, dict)
+            else (),
             demand=_quantities(town.get("demand") if isinstance(town, dict) else {}),
             time_remaining=_optional_integer(observation.get("time_remaining")),
         )

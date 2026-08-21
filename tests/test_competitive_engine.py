@@ -37,3 +37,10 @@ def test_validator_rejects_more_hands_than_observed() -> None:
     action, reason = validate_action({"farmer": ["PASS"], "hands": [["PASS"]]}, obs)
     assert action.farmer == ["PASS"]
     assert reason is not None
+
+
+def test_engine_buys_and_builds_a_goose_project() -> None:
+    obs = _observation(tiles=[[None]], private={"shed": {}, "seeds": {}, "inventories": [{}]})
+    action = CompetitiveEngine().act(obs)
+    assert action["farmer"] == ["BUILD_COOP"]
+    assert ["BUY_ANIMAL", "GOOSE", 1] in action["market"]

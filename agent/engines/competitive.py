@@ -7,9 +7,12 @@ from typing import Any
 
 from agent.core.contracts import Action
 from agent.core.state import NormalizedState
+from agent.domain.economics import projected_prices
 
 _CROP_COST = {"WHEAT": 10, "CARROT": 20, "TOMATO": 50, "STRAWBERRY": 100, "MELON": 80}
 _YIELD_VALUE = {"WHEAT": 150, "CARROT": 140, "TOMATO": 240, "STRAWBERRY": 480, "MELON": 1500}
+_ANIMAL_COST = {"GOOSE": 300, "COW": 400, "SHEEP": 500}
+_ANIMAL_STRUCTURE = {"GOOSE": "COOP", "COW": "PASTURE", "SHEEP": "PASTURE"}
 
 
 @dataclass(frozen=True)
@@ -50,16 +53,44 @@ class CompetitiveEngine:
             return ["HARVEST"]
         if tile and tile.kind == "PLANT" and not tile.watered_today:
             return ["WATER"]
+        if tile and tile.kind == "PLANT" and inv.get("FERTILIZER", 0):
+            return ["FERTILIZE"]
         if tile and tile.animal and not tile.fed_today and inv.get("WHEAT", 0):
             return ["FEED"]
+        if (
+            tile
+            and tile.animal
+            and (tile.fed_today or inv.get("WHEAT", 0))
+            and not tile.cared_today
+        ):
+            return ["CARE"]
         if tile and tile.kind == "WEED":
             return ["DIG"]
         if tile and tile.animal and tile.fertilizer_available:
             return ["COLLECT_FERTILIZER"]
-        if tile and tile.animal and not tile.cared_today:
-            return ["CARE"]
         if inv and pos in self._shed_tiles(state):
             return ["DROP"]
+        animal = self._animal_project(state)
+        if pos in self._shed_tiles(state):
+            if animal and state.shed.get(animal, 0):
+                return ["PICKUP", animal, 1]
+            if self._needs_wheat(state) and state.shed.get("WHEAT", 0):
+                return ["PICKUP", "WHEAT", 1]
+            if self._needs_fertilizer(state) and state.shed.get("FERTILIZER", 0):
+                return ["PICKUP", "FERTILIZER", 1]
+        if (
+            tile
+            and tile.kind is None
+            and animal
+            and not self._has_structure(state, _ANIMAL_STRUCTURE[animal])
+        ):
+            return [f"BUILD_{_ANIMAL_STRUCTURE[animal]}"]
+        if tile and tile.kind == _ANIMAL_STRUCTURE.get(
+            next((item for item in inv if item in _ANIMAL_STRUCTURE), "")
+        ):
+            animal_in_hand = next((item for item in inv if item in _ANIMAL_STRUCTURE), None)
+            if animal_in_hand:
+                return ["PLACE", animal_in_hand]
         target = self._target(state, pos, inv, assigned)
         if target:
             assigned.add(target)
@@ -85,11 +116,27 @@ class CompetitiveEngine:
             lambda t: bool(t.animal and not t.cared_today),
             lambda t: t.kind is None and state.seeds.get(self._best_crop(state), 0) > 0,
         )
+        animal_in_hand = next((item for item in inv if item in _ANIMAL_STRUCTURE), None)
+        if animal_in_hand:
+            predicates = (
+                lambda t: t.kind == _ANIMAL_STRUCTURE[animal_in_hand] and not t.animal,
+                *predicates,
+            )
         for predicate in predicates:
             choices = [t for t in state.tiles if predicate(t) and (t.x, t.y) not in assigned]
             if choices:
                 chosen = min(choices, key=lambda t: (self._distance(pos, (t.x, t.y)), t.y, t.x))
                 return chosen.x, chosen.y
+        if self._needs_wheat(state) and not inv.get("WHEAT", 0) and state.shed.get("WHEAT", 0):
+            return min(self._shed_tiles(state), key=lambda p: self._distance(pos, p))
+        if (
+            self._needs_fertilizer(state)
+            and not inv.get("FERTILIZER", 0)
+            and state.shed.get("FERTILIZER", 0)
+        ):
+            return min(self._shed_tiles(state), key=lambda p: self._distance(pos, p))
+        if self._animal_project(state) and state.shed.get(self._animal_project(state) or "", 0):
+            return min(self._shed_tiles(state), key=lambda p: self._distance(pos, p))
         if inv:
             return min(self._shed_tiles(state), key=lambda p: self._distance(pos, p))
         return None
@@ -110,6 +157,21 @@ class CompetitiveEngine:
         affordable = max(0, int((state.money - self.config.reserve_cash) // _CROP_COST[crop]))
         if wanted and affordable:
             orders.append(["BUY_SEED", crop, min(wanted, affordable)])
+        animal = self._animal_project(state)
+        if (
+            animal
+            and not state.shed.get(animal, 0)
+            and state.money >= _ANIMAL_COST[animal] + self.config.reserve_cash
+        ):
+            orders.append(["BUY_ANIMAL", animal, 1])
+        if (
+            self._needs_wheat(state)
+            and state.shed.get("WHEAT", 0) < 4
+            and state.money > self.config.reserve_cash
+        ):
+            orders.append(["BUY_PRODUCT", "WHEAT", 4 - state.shed.get("WHEAT", 0)])
+        if self._needs_land(state):
+            orders.append(["BUY_LAND"])
         urgent = sum(
             t.kind == "PLANT" and not t.watered_today or t.kind == "WEED" or bool(t.animal)
             for t in state.tiles
@@ -119,6 +181,9 @@ class CompetitiveEngine:
         return orders[: self.config.max_orders]
 
     def _best_crop(self, state: NormalizedState) -> str:
+        future_prices = projected_prices(
+            state.market_inventory, state.shops, state.step, self._remaining_turns(state)
+        )
         candidates = [
             crop
             for crop in _CROP_COST
@@ -127,14 +192,50 @@ class CompetitiveEngine:
         return max(
             candidates or ["WHEAT"],
             key=lambda c: (
-                state.prices.get(c, _YIELD_VALUE[c] / 6) * _YIELD_VALUE[c] / _CROP_COST[c],
+                future_prices.get(c, state.prices.get(c, _YIELD_VALUE[c] / 6))
+                * _YIELD_VALUE[c]
+                / _CROP_COST[c],
                 c,
             ),
         )
 
     def _closing(self, state: NormalizedState) -> bool:
-        return (
+        return state.day >= 28 or (
             state.time_remaining is not None and state.time_remaining <= self.config.closing_turns
+        )
+
+    def _remaining_turns(self, state: NormalizedState) -> int:
+        if state.time_remaining is not None:
+            return state.time_remaining
+        return max(0, (30 - state.day) * 24 - state.hour)
+
+    def _animal_project(self, state: NormalizedState) -> str | None:
+        if state.day >= 24 or any(tile.animal for tile in state.tiles):
+            return None
+        # Geese pay back first, begin production fastest, and use the same wheat
+        # logistics the crop plan already maintains.
+        return "GOOSE" if state.money >= _ANIMAL_COST["GOOSE"] + self.config.reserve_cash else None
+
+    @staticmethod
+    def _has_structure(state: NormalizedState, structure: str) -> bool:
+        return any(tile.kind == structure for tile in state.tiles)
+
+    @staticmethod
+    def _needs_wheat(state: NormalizedState) -> bool:
+        return any(tile.animal and not tile.fed_today for tile in state.tiles)
+
+    @staticmethod
+    def _needs_fertilizer(state: NormalizedState) -> bool:
+        return any(tile.kind == "PLANT" and tile.watered_today for tile in state.tiles)
+
+    def _needs_land(self, state: NormalizedState) -> bool:
+        prices = (1000, 2000, 4000)
+        extra = max(0, len(state.unlocked_quadrants) - 1)
+        return (
+            extra < len(prices)
+            and sum(tile.kind is None for tile in state.tiles) < 3
+            and state.day < 24
+            and state.money >= prices[extra] + self.config.reserve_cash
         )
 
     @staticmethod
