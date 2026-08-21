@@ -39,6 +39,7 @@ class NormalizedState:
     position: tuple[int, int]
     hand_positions: tuple[tuple[int, int], ...]
     unlocked_quadrants: tuple[str, ...]
+    hires_today: int
     tiles: tuple[Tile, ...]
     seeds: dict[str, int]
     inventory: dict[str, int]
@@ -113,6 +114,7 @@ class NormalizedState:
                 for quadrant in farm.get("unlocked_quadrants", [])
                 if isinstance(quadrant, str)
             ),
+            hires_today=_integer(farm.get("hires_today")),
             tiles=tuple(tiles),
             seeds=_quantities(private.get("seeds")),
             inventory=shed,

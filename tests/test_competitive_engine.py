@@ -1,5 +1,5 @@
 from agent.core.validation import validate_action
-from agent.engines.competitive import CompetitiveEngine
+from agent.engines.competitive import CompetitiveConfig, CompetitiveEngine
 
 
 def _observation(*, tiles, hands=None, private=None, market=None, day=1):
@@ -24,7 +24,7 @@ def test_engine_prioritizes_harvest_and_coordinates_a_hand() -> None:
         private={"shed": {}, "seeds": {}, "inventories": [{}, {}]},
         day=2,
     )
-    action = CompetitiveEngine().act(obs)
+    action = CompetitiveEngine(CompetitiveConfig(enable_hands=True)).act(obs)
     assert action["farmer"] == ["HARVEST"]
     assert action["hands"] == [["WATER"]]
 
@@ -58,3 +58,12 @@ def test_engine_never_harvests_immature_crop() -> None:
         day=1,
     )
     assert CompetitiveEngine().act(obs)["farmer"] == ["WATER"]
+
+
+def test_engine_hires_one_hand_for_a_busy_day() -> None:
+    obs = _observation(
+        tiles=[[None, None], [None, None]],
+        private={"shed": {}, "seeds": {"CARROT": 4}, "inventories": [{}]},
+    )
+    action = CompetitiveEngine(CompetitiveConfig(enable_hands=True)).act(obs)
+    assert ["HIRE"] in action["market"]

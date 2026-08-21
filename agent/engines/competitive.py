@@ -22,6 +22,7 @@ class CompetitiveConfig:
     seed_batch: int = 8
     closing_day: int = _CLOSING_DAY
     max_orders: int = 10
+    enable_hands: bool = False
 
 
 class CompetitiveEngine:
@@ -135,6 +136,23 @@ class CompetitiveEngine:
         affordable = max(0, int((state.money - self.config.reserve_cash) // _SEED_COST))
         if needed and affordable:
             orders.append(["BUY_SEED", _CROP, min(needed, affordable)])
+        # A hand lasts only until day-end. Hire exactly one at the opening of a
+        # busy day: its Fibonacci first cost is $1, while it can plant/water
+        # several carrots before the daily refresh.
+        pending = sum(
+            tile.kind == "WEED"
+            or (tile.kind == "PLANT" and not tile.watered_today)
+            or (tile.kind is None and state.seeds.get(_CROP, 0) > 0)
+            for tile in state.tiles
+        )
+        if (
+            self.config.enable_hands
+            and state.hour == 0
+            and state.hires_today == 0
+            and pending >= 4
+            and state.money > self.config.reserve_cash + 1
+        ):
+            orders.append(["HIRE"])
         return orders[: self.config.max_orders]
 
     def _closing(self, state: NormalizedState) -> bool:
