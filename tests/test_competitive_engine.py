@@ -49,7 +49,7 @@ def test_engine_starts_with_bounded_carrot_seeds() -> None:
     obs = _observation(tiles=[[None]], private={"shed": {}, "seeds": {}, "inventories": [{}]})
     action = CompetitiveEngine().act(obs)
     assert action["farmer"] == ["PASS"]
-    assert action["market"] == [["BUY_SEED", "CARROT", 8]]
+    assert action["market"] == [["BUY_SEED", "CARROT", 4]]
 
 
 def test_engine_never_harvests_immature_crop() -> None:

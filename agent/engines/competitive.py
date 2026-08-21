@@ -19,7 +19,7 @@ class CompetitiveConfig:
     """Conservative limits for the reproducible crop-first opening."""
 
     reserve_cash: int = 200
-    seed_batch: int = 8
+    seed_batch: int = 4
     closing_day: int = _CLOSING_DAY
     max_orders: int = 10
     enable_hands: bool = False

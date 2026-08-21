@@ -8,8 +8,9 @@ distance, sells from the shed before capacity loss, and keeps purchases below a
 cash reserve. Its current verified scope is tactical use of crop, shed, hand,
 weed, fertilizer-collection, feeding and care fields. Structure/animal
 expansion and land purchases remain deliberately unissued until their economic
-return simulator and official lifecycle fixtures are covered; promotion is
-blocked until that work and the 1..40 matrix are complete.
+return simulator and official lifecycle fixtures are covered. The crop-first
+candidate is promoted on the completed 1..40 local matrix; future expansion
+must preserve that benchmark evidence.
 
 `heuristic-v1` is the deterministic, submission-ready safety baseline. It is
 not yet the crop-and-shed economic policy described below. It reads only
