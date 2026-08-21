@@ -96,9 +96,99 @@ def _validate_against_observation(action: Action, observation: dict[str, Any]) -
     private: dict[str, Any] = private_raw if isinstance(private_raw, dict) else {}
     shed_raw = private.get("shed")
     shed: dict[str, Any] = shed_raw if isinstance(shed_raw, dict) else {}
+    seeds_raw = private.get("seeds")
+    seeds: dict[str, Any] = seeds_raw if isinstance(seeds_raw, dict) else {}
+    inventories_raw = private.get("inventories")
+    inventories: list[dict[str, Any]] = (
+        [entry for entry in inventories_raw if isinstance(entry, dict)]
+        if isinstance(inventories_raw, list)
+        else []
+    )
+    positions = [
+        farm.get("farmer"),
+        *(farm.get("hands") if isinstance(farm.get("hands"), list) else []),
+    ]
+    for index, command in enumerate([action.farmer, *action.hands]):
+        position = positions[index] if index < len(positions) else None
+        inventory = inventories[index] if index < len(inventories) else {}
+        _validate_unit_legality(command, position, farm.get("tiles"), inventory, shed, seeds)
     for order in action.market:
         if order[0] == "SELL" and _positive_or_zero(shed.get(order[1])) < _positive(order[2]):
             raise ValueError("sell exceeds shed inventory")
+
+
+def _validate_unit_legality(
+    command: list[Any],
+    position: Any,
+    tiles: Any,
+    inventory: dict[str, Any],
+    shed: dict[str, Any],
+    seeds: dict[str, Any],
+) -> None:
+    if not isinstance(position, list) or len(position) < 2:
+        raise ValueError("unit has no official position")
+    x, y = _positive_or_zero(position[0]), _positive_or_zero(position[1])
+    if not isinstance(tiles, list) or not tiles or not isinstance(tiles[0], list):
+        raise ValueError("missing board tiles")
+    height, width = len(tiles), len(tiles[0])
+    op = command[0]
+    if op in MOVES:
+        dx, dy = {"NORTH": (0, -1), "SOUTH": (0, 1), "EAST": (1, 0), "WEST": (-1, 0)}[op]
+        if not 0 <= x + dx < width or not 0 <= y + dy < height:
+            raise ValueError("move exits board")
+        return
+    tile = tiles[y][x] if y < height and x < len(tiles[y]) else "LOCKED"
+    access = _shed_access(x, y, width)
+    if op in {"DROP", "PICKUP"} and not access:
+        raise ValueError("shed action requires shed access tile")
+    if op == "PICKUP" and _positive_or_zero(shed.get(command[1])) < _quantity(command, 2):
+        raise ValueError("pickup exceeds shed inventory")
+    if op in {"DROP", "PICKUP", "PASS"}:
+        return
+    if tile == "LOCKED":
+        raise ValueError("tile operation targets locked land")
+    if op == "PLANT" and (tile is not None or _positive_or_zero(seeds.get(command[1])) < 1):
+        raise ValueError("plant requires empty tile and seed")
+    if op == "WATER" and not (
+        isinstance(tile, dict) and tile.get("kind") == "PLANT" and not tile.get("watered_today")
+    ):
+        raise ValueError("water requires an unwatered plant")
+    if op == "HARVEST" and not (
+        isinstance(tile, dict) and _positive_or_zero(tile.get("yield_units")) > 0
+    ):
+        raise ValueError("harvest requires held yield")
+    if op == "FERTILIZE" and (
+        not isinstance(tile, dict)
+        or tile.get("kind") != "PLANT"
+        or _positive_or_zero(inventory.get("FERTILIZER")) < 1
+    ):
+        raise ValueError("fertilize requires plant and fertilizer")
+    if op == "FEED" and (
+        not isinstance(tile, dict)
+        or not tile.get("animal")
+        or tile.get("fed_today")
+        or _positive_or_zero(inventory.get("WHEAT")) < 1
+    ):
+        raise ValueError("feed requires an unfed animal and wheat")
+    if op == "CARE" and (
+        not isinstance(tile, dict) or not tile.get("animal") or tile.get("cared_today")
+    ):
+        raise ValueError("care requires an uncared animal")
+    if op == "COLLECT_FERTILIZER" and (
+        not isinstance(tile, dict) or not tile.get("animal") or not tile.get("fertilizer_available")
+    ):
+        raise ValueError("collection requires available animal fertilizer")
+    if op == "PLACE" and _positive_or_zero(inventory.get(command[1])) < 1:
+        raise ValueError("place requires item in unit inventory")
+
+
+def _shed_access(x: int, y: int, board_size: int) -> bool:
+    half = board_size // 2
+    return (x, y) in {(half - 1, half - 1), (half, half - 1), (half - 1, half), (half, half)}
+
+
+def _quantity(command: list[Any], index: int) -> int:
+    return _positive(command[index]) if len(command) > index else 1
 
 
 def _positive(value: Any) -> int:
