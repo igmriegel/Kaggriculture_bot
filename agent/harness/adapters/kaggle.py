@@ -46,7 +46,7 @@ class KaggleEnvironmentAdapter:
             return None
         rewards = [state.reward for state in self._environment.state]
         winner = 0 if rewards[0] > rewards[1] else 1 if rewards[1] > rewards[0] else None
-        return {"winner": winner, "rewards": rewards}
+        return {"winner": winner, "rewards": rewards, "money": rewards[self._player]}
 
 
 def _observation(environment: Any, player: int) -> dict[str, Any]:

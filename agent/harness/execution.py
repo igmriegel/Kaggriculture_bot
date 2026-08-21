@@ -97,6 +97,7 @@ class EpisodeRunner:
             raw_result=raw_result,
             errors=errors,
             fallbacks=fallbacks,
+            metrics=_metrics(records, observation),
             turns_log=records if self.config.log_turns else [],
         )
         for reporter in self.reporters:
@@ -125,3 +126,36 @@ def _infer_status(result: Any) -> EpisodeStatus:
     if isinstance(result, dict) and result.get("winner") in {1, "opponent"}:
         return "loss"
     return "tie"
+
+
+def _metrics(records: list[TurnRecord], observation: dict[str, Any]) -> dict[str, Any]:
+    """Portable evidence summary; official-only fields stay nullable/omitted."""
+    actions: dict[str, int] = {}
+    for record in records:
+        command = record.action_sent.get("farmer", ["PASS"])
+        operation = command[0] if command and isinstance(command[0], str) else "PASS"
+        actions[operation] = actions.get(operation, 0) + 1
+        for hand in record.action_sent.get("hands", []):
+            if hand and isinstance(hand[0], str):
+                actions[hand[0]] = actions.get(hand[0], 0) + 1
+        for order in record.action_sent.get("market", []):
+            if order and isinstance(order[0], str):
+                actions[order[0]] = actions.get(order[0], 0) + 1
+    latencies = [record.latency_ms for record in records if record.latency_ms is not None]
+    private_raw = observation.get("private")
+    private: dict[str, Any] = private_raw if isinstance(private_raw, dict) else {}
+    player_raw = observation.get("player", 0)
+    player = player_raw if isinstance(player_raw, int) else 0
+    farms_raw = observation.get("farms")
+    farms: list[Any] = farms_raw if isinstance(farms_raw, list) else []
+    farm = farms[player] if isinstance(player, int) and 0 <= player < len(farms) else {}
+    return {
+        "action_counts": actions,
+        "latency_ms": {
+            "mean": sum(latencies) / len(latencies) if latencies else None,
+            "max": max(latencies) if latencies else None,
+        },
+        "final_shed": private.get("shed", {}) if isinstance(private.get("shed"), dict) else {},
+        "final_seeds": private.get("seeds", {}) if isinstance(private.get("seeds"), dict) else {},
+        "final_money": farm.get("money") if isinstance(farm, dict) else None,
+    }

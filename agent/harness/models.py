@@ -60,6 +60,7 @@ class EpisodeRecord(BaseModel):
     raw_result: Any = None
     errors: int = 0
     fallbacks: int = 0
+    metrics: dict[str, Any] = Field(default_factory=dict)
     turns_log: list[TurnRecord] = Field(default_factory=list)
 
 

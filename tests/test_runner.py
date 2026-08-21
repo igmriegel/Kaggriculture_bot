@@ -32,6 +32,8 @@ def test_runner_completes_and_records_turns() -> None:
     assert record.status == "tie"
     assert record.turns == 2
     assert record.errors == 0
+    assert record.metrics["action_counts"] == {"PASS": 2}
+    assert record.metrics["latency_ms"]["max"] is not None
 
 
 def test_runner_records_agent_failure_as_fallback() -> None:
