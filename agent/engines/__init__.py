@@ -21,3 +21,6 @@ __all__ = [
     "TaskKind",
     "TaskPlanner",
 ]
+from agent.engines.competitive import CompetitiveEngine
+
+__all__ = ["CompetitiveEngine"]

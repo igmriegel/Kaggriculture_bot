@@ -1,5 +1,6 @@
 """Built-in extension registrations kept separate from the public facade."""
 
+from agent.engines.competitive import CompetitiveEngine
 from agent.engines.heuristic import ConservativeHeuristic
 from agent.engines.heuristic_v1 import HeuristicV1
 from agent.harness.adapters.kaggle import KaggleEnvironmentAdapter
@@ -21,6 +22,8 @@ def register_builtins() -> None:
         register_agent("heuristic", ConservativeHeuristic())
     if "heuristic-v1" not in _names("agent"):
         register_agent("heuristic-v1", HeuristicV1())
+    if "competitive" not in _names("agent"):
+        register_agent("competitive", CompetitiveEngine())
     if "json" not in _names("reporter"):
         register_reporter("json", JsonReporter)
     if "jsonl" not in _names("reporter"):
@@ -48,6 +51,27 @@ def register_builtins() -> None:
                     name=name,
                     adapter="kaggriculture",
                     agent="heuristic-v1",
+                    opponent=opponent,
+                    seeds=seeds,
+                ),
+            )
+    for name, opponent, seeds in (
+        ("competitive-pass-development", "pass", tuple(range(1, 21))),
+        ("competitive-random-development", "random", tuple(range(1, 21))),
+        ("competitive-v1-development", "heuristic-v1", tuple(range(1, 21))),
+        ("competitive-self-development", "competitive", tuple(range(1, 21))),
+        ("competitive-pass-confirmation", "pass", tuple(range(21, 41))),
+        ("competitive-random-confirmation", "random", tuple(range(21, 41))),
+        ("competitive-v1-confirmation", "heuristic-v1", tuple(range(21, 41))),
+        ("competitive-self-confirmation", "competitive", tuple(range(21, 41))),
+    ):
+        if name not in _names("scenario"):
+            register_scenario(
+                name,
+                Scenario(
+                    name=name,
+                    adapter="kaggriculture",
+                    agent="competitive",
                     opponent=opponent,
                     seeds=seeds,
                 ),

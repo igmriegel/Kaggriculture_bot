@@ -9,10 +9,11 @@ farm-playing agent feel calm and dependable. Strategy code stays separate from
 the game adapter and runner, so you can improve the bot without rewriting the
 submission boundary each time.
 
-The current submission candidate is **`heuristic-v1`**. It prioritizes ripe
-crops, watering, inventory liquidation, planting available wheat, and safe
-movement. When an observation is incomplete or an action is unsafe, it falls
-back to `PASS` rather than crashing.
+The current submission candidate is **`competitive`**. It plans actions for
+the farmer and every active hand, prioritising yield, watering, feeding,
+weeds, collection, shed capacity, and safe liquidation. When a command cannot
+be established from the observation, the submission boundary falls back to
+`PASS` rather than inventing a mechanic.
 
 ## What is included
 
@@ -20,7 +21,7 @@ back to `PASS` rather than crashing.
 - A strategy-agnostic episode runner with deterministic seeds and time limits.
 - JSON episode reports and optional JSONL decision traces.
 - Built-in PASS, deterministic-random, and self-play scenarios.
-- Two engines: a small conservative baseline and `heuristic-v1`.
+- Three engines: a conservative baseline, `heuristic-v1`, and `competitive`.
 - A submission packager that produces a tarball with `main.py` at its root.
 - Unit tests and quality gates for the public harness and the V1 policy.
 
@@ -101,16 +102,15 @@ flowchart LR
 | `tests/` | Regression coverage for policy, harness, artifacts, and packaging. |
 | `docs/` | Architecture decisions, operational guides, and engine notes. |
 
-## Heuristic V1, in plain language
+## Competitive engine, in plain language
 
-The V1 engine makes one conservative choice per turn:
+The competitive engine allocates one legal task per available unit:
 
-1. Harvest a ready crop.
-2. Water the crop under the farmer.
-3. Near the end, sell the most valuable known inventory item.
-4. Plant wheat when standing on an empty tile with a seed available.
-5. Sell available inventory, then move toward an empty tile.
-6. Pass safely when no verified action applies.
+1. Harvest held crop or animal output, then water and feed obligations.
+2. Remove weeds, collect fertilizer, care for animals, and route inventories to the shed.
+3. Divide remaining watering, harvesting, cleanup, and planting targets among hands.
+4. Sell before shed overflow and liquidate known shed stock near the season close.
+5. Buy a bounded number of economically ranked seeds while retaining cash reserve.
 
 This is intentionally not an all-knowing economic model yet. Animal care,
 workers, fertilizer, land purchases, and advanced market rules will be enabled
@@ -118,8 +118,8 @@ only after their official fields and preconditions are captured in fixtures.
 That restraint is a feature: the submission boundary should never invent game
 mechanics.
 
-Read the full [Heuristic V1 policy](docs/engines/HEURISTIC_V1.md) for its
-inputs, safeguards, and promotion criteria.
+Read the [engine policy](docs/engines/HEURISTIC_V1.md) for verified protocol
+constraints, safeguards, and promotion criteria.
 
 ## Development workflow
 

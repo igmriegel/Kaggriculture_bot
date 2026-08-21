@@ -14,9 +14,14 @@ uv run python -m agent.harness validate-submission --path dist/kaggriculture-sub
 Run the fixed evidence matrix once the optional environment is available:
 
 ```bash
-uv run --group competition python -m agent.harness benchmark --scenario v1-pass
-uv run --group competition python -m agent.harness benchmark --scenario v1-random
-uv run --group competition python -m agent.harness benchmark --scenario v1-self-play
+uv run --group competition python -m agent.harness benchmark --scenario competitive-pass-development
+uv run --group competition python -m agent.harness benchmark --scenario competitive-random-development
+uv run --group competition python -m agent.harness benchmark --scenario competitive-v1-development
+uv run --group competition python -m agent.harness benchmark --scenario competitive-self-development
+
+# Repeat the same matrix on unseen seeds 21..40 before promotion.
+uv run --group competition python -m agent.harness benchmark --scenario competitive-pass-confirmation
+uv run --group competition python -m agent.harness benchmark --scenario competitive-random-confirmation
 ```
 
 Capture one explicit-seed local episode with its summary and turn log before
@@ -25,7 +30,7 @@ simulation episode is the replay artifact.
 
 ```bash
 uv run --group competition python -m agent.harness run \
-  --adapter kaggriculture --agent heuristic-v1 --opponent pass \
+  --adapter kaggriculture --agent competitive --opponent pass \
   --seed 42 --max-turns 720 --output reports/local --log-turns
 ```
 

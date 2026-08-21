@@ -20,6 +20,11 @@ class Tile:
     yield_units: int = 0
     weeds: bool = False
     fertilizer: int = 0
+    crop: str | None = None
+    animal: str | None = None
+    fed_today: bool = False
+    cared_today: bool = False
+    fertilizer_available: bool = False
 
 
 @dataclass(frozen=True)
@@ -31,9 +36,13 @@ class NormalizedState:
     hour: int
     step: int
     position: tuple[int, int]
+    hand_positions: tuple[tuple[int, int], ...]
     tiles: tuple[Tile, ...]
     seeds: dict[str, int]
     inventory: dict[str, int]
+    shed: dict[str, int]
+    unit_inventories: tuple[dict[str, int], ...]
+    shed_capacity: int
     prices: dict[str, float]
     demand: dict[str, int]
     time_remaining: int | None
@@ -62,6 +71,11 @@ class NormalizedState:
                             yield_units=_integer(raw.get("yield_units")),
                             weeds=bool(raw.get("weeds", False)),
                             fertilizer=_integer(raw.get("fertilizer")),
+                            crop=_string(raw.get("crop")),
+                            animal=_string(raw.get("animal")),
+                            fed_today=bool(raw.get("fed_today", False)),
+                            cared_today=bool(raw.get("cared_today", False)),
+                            fertilizer_available=bool(raw.get("fertilizer_available", False)),
                         )
                     )
                 elif raw is None:
@@ -70,17 +84,31 @@ class NormalizedState:
         private = private if isinstance(private, dict) else {}
         market = observation.get("market", {})
         town = observation.get("town", {})
+        inventories = private.get("inventories")
+        unit_inventories = (
+            tuple(_quantities(item) for item in inventories)
+            if isinstance(inventories, list)
+            else ()
+        )
+        shed = _quantities(private.get("shed", private.get("inventory", farm.get("inventory"))))
+        hands = farm.get("hands", [])
         return cls(
             money=_integer(farm.get("money")),
             day=_integer(observation.get("day")),
             hour=_integer(observation.get("hour")),
             step=_integer(observation.get("step")),
             position=(x, y),
+            hand_positions=tuple(
+                (_integer(pos[0]), _integer(pos[1]))
+                for pos in hands
+                if isinstance(pos, list) and len(pos) >= 2
+            ),
             tiles=tuple(tiles),
             seeds=_quantities(private.get("seeds")),
-            inventory=_quantities(
-                private.get("inventory", private.get("shed", farm.get("inventory")))
-            ),
+            inventory=shed,
+            shed=shed,
+            unit_inventories=unit_inventories,
+            shed_capacity=_integer(observation.get("shedCapacity", 100)) or 100,
             prices=_prices(market),
             demand=_quantities(town.get("demand") if isinstance(town, dict) else {}),
             time_remaining=_optional_integer(observation.get("time_remaining")),
@@ -94,6 +122,12 @@ class NormalizedState:
         if not empty:
             return None
         return min(empty, key=lambda tile: _distance(self.position, (tile.x, tile.y)))
+
+    def units(self) -> tuple[tuple[int, int], ...]:
+        return (self.position, *self.hand_positions)
+
+    def tile_at(self, position: tuple[int, int]) -> Tile | None:
+        return next((tile for tile in self.tiles if (tile.x, tile.y) == position), None)
 
 
 def _integer(value: Any) -> int:
