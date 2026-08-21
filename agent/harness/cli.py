@@ -9,7 +9,7 @@ from agent.harness.execution import EpisodeRunner
 from agent.harness.models import RunConfig
 from agent.harness.registry import get_adapter, get_agent, get_scenario
 from agent.harness.reporting import JsonlReporter, JsonReporter
-from agent.harness.scenarios import build_benchmark_report
+from agent.harness.scenarios import build_benchmark_report, scenario_fingerprint
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,12 +42,16 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
-    record = _execute(args)
+    record = _execute(
+        args,
+        output_dir=str(Path(args.output) / "adhoc"),
+        episode_id=f"seed-{args.seed}",
+    )
     print(f"{record.episode_id}: {record.status} after {record.turns} turns")
     return 0 if record.status in {"win", "loss", "tie"} else 1
 
 
-def _execute(args: argparse.Namespace):
+def _execute(args: argparse.Namespace, *, output_dir: str, episode_id: str):
     adapter_factory: Any = get_adapter(args.adapter)
     environment = adapter_factory()
     agent = get_agent(args.agent)
@@ -55,18 +59,23 @@ def _execute(args: argparse.Namespace):
         seed=args.seed,
         max_turns=args.max_turns,
         log_turns=args.log_turns,
-        output_dir=args.output,
+        output_dir=output_dir,
     )
-    reporters = [JsonReporter(args.output)]
+    reporters = [JsonReporter(output_dir)]
     if args.log_turns:
-        reporters.append(JsonlReporter(args.output))
+        reporters.append(JsonlReporter(output_dir))
     return EpisodeRunner(config, reporters).run(
-        environment, agent, agent_name=args.agent, opponent_name=args.opponent
+        environment,
+        agent,
+        episode_id=episode_id,
+        agent_name=args.agent,
+        opponent_name=args.opponent,
     )
 
 
 def _benchmark(args: argparse.Namespace) -> int:
     scenario = get_scenario(args.scenario)
+    fingerprint = scenario_fingerprint(scenario)
     episodes = []
     for seed in scenario.seeds:
         run_args = argparse.Namespace(
@@ -78,7 +87,13 @@ def _benchmark(args: argparse.Namespace) -> int:
             output=args.output,
             log_turns=False,
         )
-        episodes.append(_execute(run_args))
+        episodes.append(
+            _execute(
+                run_args,
+                output_dir=str(Path(args.output) / fingerprint),
+                episode_id=f"seed-{seed}",
+            )
+        )
     report = build_benchmark_report(scenario, episodes)
     JsonReporter(args.output).write_benchmark(report)
     print(f"{report.scenario_fingerprint}: {len(episodes)} episodes")

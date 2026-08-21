@@ -4,7 +4,7 @@
 
 ```bash
 uv run python -m agent.harness smoke --adapter kaggriculture
-uv run python -m agent.harness run --agent heuristic --opponent random --seed 42
+uv run python -m agent.harness run --agent heuristic --opponent pass --seed 42
 uv run python -m agent.harness benchmark --scenario baseline
 uv run python -m agent.harness report --input reports/
 uv run python -m agent.harness validate-submission --path dist/submission.tar.gz
@@ -22,6 +22,10 @@ reports/<scenario-fingerprint>/benchmark.json
 `episode.json` stores version, configuration, status, timings, error counts,
 normalized result, and raw environment result. `turns.jsonl` stores one
 versioned turn record per line. Do not place reports in a submission package.
+
+The current official adapter uses a `PASS` opponent; `random` and self-play are
+integration-test targets once the optional native competition dependency is
+available.
 
 ## Diagnosis
 
