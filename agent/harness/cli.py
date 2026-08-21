@@ -1,6 +1,7 @@
 """Command-line interface for local harness workflows."""
 
 import argparse
+import importlib
 import random
 import tarfile
 import tempfile
@@ -131,11 +132,16 @@ def _opponent_for(name: str, seed: int):
     if name == "pass":
         return lambda observation: {"farmer": ["PASS"], "market": []}
     if name == "random":
-        generator = random.Random(seed)
-        return lambda observation: {
-            "farmer": [generator.choice(("PASS", "NORTH", "SOUTH", "EAST", "WEST"))],
-            "market": [],
-        }
+        try:
+            return importlib.import_module(
+                "kaggle_environments.envs.kaggriculture.kaggriculture"
+            ).random_agent
+        except ModuleNotFoundError:
+            generator = random.Random(seed)
+            return lambda observation: {
+                "farmer": [generator.choice(("PASS", "NORTH", "SOUTH", "EAST", "WEST"))],
+                "market": [],
+            }
     return get_agent(name).act
 
 

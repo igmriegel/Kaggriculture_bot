@@ -25,6 +25,7 @@ class Tile:
     fed_today: bool = False
     cared_today: bool = False
     fertilizer_available: bool = False
+    planted_day: int | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,7 @@ class NormalizedState:
                             fed_today=bool(raw.get("fed_today", False)),
                             cared_today=bool(raw.get("cared_today", False)),
                             fertilizer_available=bool(raw.get("fertilizer_available", False)),
+                            planted_day=_optional_integer(raw.get("planted_day")),
                         )
                     )
                 elif raw is None:

@@ -65,19 +65,22 @@ class EpisodeRunner:
                 action_raw=raw,
                 action_sent=action.model_dump(),
                 observation_hash=_hash_observation(observation),
+                observation_before=_observation_summary(observation),
                 fallback_reason=fallback_reason,
                 exception=exception,
                 latency_ms=latency_ms,
             )
             records.append(event)
-            for reporter in self.reporters:
-                reporter.on_turn(event)
             try:
                 observation = environment.step(event.action_sent)
+                event.observation_after = _observation_summary(observation)
             except Exception as exc:
                 errors += 1
                 status = "environment_error"
                 event.exception = f"{type(exc).__name__}: {exc}"
+            for reporter in self.reporters:
+                reporter.on_turn(event)
+            if status == "environment_error":
                 break
         else:
             status = "incomplete"
@@ -158,4 +161,42 @@ def _metrics(records: list[TurnRecord], observation: dict[str, Any]) -> dict[str
         "final_shed": private.get("shed", {}) if isinstance(private.get("shed"), dict) else {},
         "final_seeds": private.get("seeds", {}) if isinstance(private.get("seeds"), dict) else {},
         "final_money": farm.get("money") if isinstance(farm, dict) else None,
+    }
+
+
+def _observation_summary(observation: dict[str, Any]) -> dict[str, Any]:
+    """Small, replay-safe state snapshot for diagnosis without storing raw state."""
+    player = observation.get("player")
+    farms = observation.get("farms")
+    farm = (
+        farms[player]
+        if isinstance(player, int) and isinstance(farms, list) and 0 <= player < len(farms)
+        else {}
+    )
+    private = observation.get("private") if isinstance(observation.get("private"), dict) else {}
+    tiles_raw = farm.get("tiles") if isinstance(farm, dict) else None
+    tiles: list[Any] = tiles_raw if isinstance(tiles_raw, list) else []
+    counts: dict[str, int] = {}
+    for row in tiles:
+        if not isinstance(row, list):
+            continue
+        for tile in row:
+            kind = (
+                "EMPTY"
+                if tile is None
+                else tile.get("kind", "UNKNOWN")
+                if isinstance(tile, dict)
+                else str(tile)
+            )
+            counts[kind] = counts.get(kind, 0) + 1
+    return {
+        "day": observation.get("day"),
+        "hour": observation.get("hour"),
+        "step": observation.get("step"),
+        "money": farm.get("money") if isinstance(farm, dict) else None,
+        "farmer": farm.get("farmer") if isinstance(farm, dict) else None,
+        "hands": farm.get("hands") if isinstance(farm, dict) else [],
+        "tile_counts": counts,
+        "shed": private.get("shed", {}) if isinstance(private, dict) else {},
+        "seeds": private.get("seeds", {}) if isinstance(private, dict) else {},
     }

@@ -1,3 +1,4 @@
+import json
 from time import sleep
 from typing import Any
 
@@ -36,7 +37,9 @@ def test_reporters_write_versioned_json_and_jsonl(tmp_path) -> None:
     )
     assert record.status == "win"
     assert (tmp_path / "episode-0" / "episode.json").is_file()
-    assert (tmp_path / "episode-0" / "turns.jsonl").read_text().count("\n") == 1
+    event = json.loads((tmp_path / "episode-0" / "turns.jsonl").read_text())
+    assert event["observation_before"]["step"] == 0
+    assert event["observation_after"]["step"] == 1
 
 
 def test_agent_error_is_not_masked_by_environment_completion() -> None:

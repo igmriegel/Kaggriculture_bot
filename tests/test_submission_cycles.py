@@ -19,7 +19,17 @@ def _observation(tile, *, inventory=None, shed=None, seeds=None):
 
 
 def test_submission_harvest_cycle_is_not_downgraded() -> None:
-    action = agent(_observation({"kind": "PLANT", "yield_units": 2, "watered_today": False}))
+    action = agent(
+        _observation(
+            {
+                "kind": "PLANT",
+                "crop": "CARROT",
+                "planted_day": 0,
+                "yield_units": 2,
+                "watered_today": False,
+            }
+        )
+    )
     assert action["farmer"] == ["HARVEST"]
 
 

@@ -42,6 +42,8 @@ class TurnRecord(BaseModel):
     action_raw: Any = None
     action_sent: dict[str, Any]
     observation_hash: str | None = None
+    observation_before: dict[str, Any] = Field(default_factory=dict)
+    observation_after: dict[str, Any] = Field(default_factory=dict)
     fallback_reason: str | None = None
     exception: str | None = None
     latency_ms: float | None = None
