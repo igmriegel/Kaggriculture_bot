@@ -139,11 +139,11 @@ Useful references:
 
 ## Status
 
-The `leader-v2` cycle planner passed the local official 20-seed development
-and independent 40-seed confirmation matrices against PASS, the official
-random agent, and `competitive`, with zero errors or fallbacks. Read the
-[engine evidence](docs/operations/ENGINE_EVIDENCE.md) for exact results and
-reproduction commands. Future changes are gated on preserving that evidence.
+The replay-aligned `leader-v2` planner won all 20 reproduced development seeds
+against both PASS ($29,641.15 mean) and the official random agent ($20,564.75
+mean), with zero errors or fallbacks. Read the [engine
+evidence](docs/operations/ENGINE_EVIDENCE.md) for the remaining confirmation
+gates and reproduction commands.
 
 ---
 

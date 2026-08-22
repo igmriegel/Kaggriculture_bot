@@ -23,7 +23,7 @@ _PRODUCTS = {
     "FERTILIZER",
 }
 _ANIMAL_COST = {"COW": 400, "SHEEP": 500}
-_SEED_COST = {"WHEAT": 10, "STRAWBERRY": 100}
+_SEED_COST = {"WHEAT": 10, "STRAWBERRY": 100, "MELON": 80}
 
 
 @dataclass(frozen=True)
@@ -52,9 +52,11 @@ class Task:
 
 @dataclass(frozen=True)
 class LeaderV2Config:
-    reserve_cash: int = 250
+    reserve_cash: int = 0
+    operating_cash_floor: int = 150
     opening_animals: int = 4
-    max_animals: int = 15
+    max_animals: int = 22
+    max_hands: int = 12
     max_orders: int = 10
     closing_day: int = 28
 
@@ -92,59 +94,96 @@ class LeaderV2Engine(CompetitiveEngine):
     def _tasks(self, state: NormalizedState, goals: tuple[ProductionGoal, ...]) -> list[Task]:
         del goals
         tasks: list[Task] = []
+        opening = state.day == 0
         for tile in state.tiles:
             point = (tile.x, tile.y)
             if self._ripe(tile, state):
-                tasks.append(Task(0, point, ["HARVEST"], reservation=("tile", point)))
+                tasks.append(Task(1, point, ["HARVEST"], reservation=("tile", point)))
                 continue
             if tile.animal:
                 if not tile.fed_today:
-                    tasks.append(Task(1, point, ["FEED"], _has_wheat, ("tile", point)))
+                    tasks.append(Task(2, point, ["FEED"], _has_wheat, ("tile", point)))
                 if tile.fertilizer_available:
-                    # Available fertilizer is already-produced output; collect it before
-                    # issuing another care action on the same animal.
+                    # Feed and care are production obligations. Fertilizer is
+                    # collected afterwards because it remains available until
+                    # a worker reaches the tile.
                     tasks.append(
-                        Task(2, point, ["COLLECT_FERTILIZER"], reservation=("tile", point))
+                        Task(
+                            4,
+                            point,
+                            ["COLLECT_FERTILIZER"],
+                            _empty_inventory,
+                            ("tile", point),
+                        )
                     )
                 elif not tile.cared_today:
-                    tasks.append(Task(3, point, ["CARE"], reservation=("tile", point)))
+                    tasks.append(Task(3, point, ["CARE"], _empty_inventory, ("tile", point)))
                 continue
             if tile.kind == "PLANT" and not tile.watered_today:
-                tasks.append(Task(4, point, ["WATER"], reservation=("tile", point)))
+                tasks.append(
+                    Task(4 if opening else 5, point, ["WATER"], _empty_inventory, ("tile", point))
+                )
 
         pending = self._pending_animals(state)
         open_pastures = [tile for tile in state.tiles if tile.kind == "PASTURE" and not tile.animal]
-        build_count = max(0, pending - len(open_pastures))
-        for tile in [tile for tile in state.tiles if tile.kind is None][:build_count]:
+        planned_animals = (
+            self.v2_config.opening_animals
+            if state.day == 0 and state.hour == 1 and not any(state.shed.values())
+            else pending
+        )
+        build_count = max(0, planned_animals - len(open_pastures))
+        for tile in sorted(
+            (tile for tile in state.tiles if tile.kind is None),
+            key=lambda tile: (self._distance(state.position, (tile.x, tile.y)), tile.y, tile.x),
+        )[:build_count]:
             point = (tile.x, tile.y)
-            tasks.append(Task(5, point, ["BUILD_PASTURE"], _empty_inventory, ("tile", point)))
+            tasks.append(
+                Task(
+                    1 if opening else 5, point, ["BUILD_PASTURE"], _empty_inventory, ("tile", point)
+                )
+            )
         for tile in open_pastures:
             point = (tile.x, tile.y)
-            tasks.append(Task(6, point, ["PLACE"], _has_animal, ("tile", point)))
+            tasks.append(Task(2 if opening else 6, point, ["PLACE"], _has_animal, ("tile", point)))
         for index, animal in enumerate(self._shed_animals(state)):
             point = self._shed_tiles(state)[index % len(self._shed_tiles(state))]
-            tasks.append(Task(7, point, ["PICKUP", animal], _empty_inventory, ("pickup", index)))
-        feed_pickups = min(
-            len(self._shed_tiles(state)),
-            sum(1 for tile in state.tiles if tile.animal and not tile.fed_today),
-        )
+            tasks.append(
+                Task(
+                    0 if opening else 7,
+                    point,
+                    ["PICKUP", animal],
+                    _empty_inventory,
+                    ("pickup", index),
+                )
+            )
+        hungry_animals = sum(1 for tile in state.tiles if tile.animal and not tile.fed_today)
+        feed_pickups = min(len(self._shed_tiles(state)), (hungry_animals + 1) // 2)
         if state.shed.get("WHEAT", 0) > 0 and feed_pickups:
             for index, point in enumerate(self._shed_tiles(state)[:feed_pickups]):
                 tasks.append(
-                    Task(8, point, ["PICKUP", "WHEAT", 2], _empty_inventory, ("wheat", index))
+                    Task(0, point, ["PICKUP", "WHEAT", 2], _empty_inventory, ("wheat", index))
                 )
 
-        if not pending:
-            crop = self._crop(state)
-            for tile in [tile for tile in state.tiles if tile.kind is None][
-                : state.seeds.get(crop, 0)
-            ]:
-                point = (tile.x, tile.y)
-                tasks.append(Task(9, point, ["PLANT", crop], _empty_inventory, ("tile", point)))
+        if not pending or state.day == 0:
+            crops = ("WHEAT", "MELON") if state.day == 0 else (self._crop(state),)
+            empty_tiles = [tile for tile in state.tiles if tile.kind is None]
+            for crop in crops:
+                for tile in empty_tiles[: state.seeds.get(crop, 0)]:
+                    point = (tile.x, tile.y)
+                    tasks.append(
+                        Task(
+                            3 if opening else 9,
+                            point,
+                            ["PLANT", crop],
+                            _empty_inventory,
+                            ("tile", point),
+                        )
+                    )
+                empty_tiles = empty_tiles[state.seeds.get(crop, 0) :]
         for tile in state.tiles:
             if tile.kind == "WEED":
                 point = (tile.x, tile.y)
-                tasks.append(Task(10, point, ["DIG"], reservation=("tile", point)))
+                tasks.append(Task(10, point, ["DIG"], _empty_inventory, ("tile", point)))
         for index, inventory in enumerate(state.unit_inventories):
             if inventory and any(item in _PRODUCTS for item in inventory):
                 point = state.units()[index]
@@ -189,6 +228,22 @@ class LeaderV2Engine(CompetitiveEngine):
     def _build_market_orders(
         self, state: NormalizedState, goals: tuple[ProductionGoal, ...], tasks: list[Task]
     ) -> list[list[Any]]:
+        if state.day == 0 and not any(state.shed.values()) and not self._animal_count(state):
+            if state.hour == 0:
+                return []
+            if state.hour == 1:
+                return [
+                    ["HIRE"],
+                    ["HIRE"],
+                    ["HIRE"],
+                    ["HIRE"],
+                    ["HIRE"],
+                    ["BUY_ANIMAL", "SHEEP", 2],
+                    ["BUY_ANIMAL", "COW", 2],
+                    ["BUY_SEED", "MELON", 11],
+                    ["BUY_SEED", "WHEAT", 6],
+                    ["BUY_PRODUCT", "WHEAT", 4],
+                ]
         budget = self._budget(state, tasks)
         projected = projected_prices(
             state.market_inventory, state.shops, state.step, max(0, 720 - state.step)
@@ -197,26 +252,13 @@ class LeaderV2Engine(CompetitiveEngine):
         spending = max(0, state.money - budget.reserve)
         if self._closing(state):
             return orders[: self.v2_config.max_orders]
-        if (
-            state.day == 0
-            and state.hour == 0
-            and not any(state.shed.values())
-            and not self._animal_count(state)
-        ):
-            return [
-                ["BUY_ANIMAL", "SHEEP", 2],
-                ["BUY_ANIMAL", "COW", 2],
-                ["BUY_PRODUCT", "WHEAT", 8],
-                ["BUY_SEED", "WHEAT", 10],
-                ["HIRE"],
-                ["HIRE"],
-                ["HIRE"],
-                ["HIRE"],
-            ]
         animal_goal = next(goal.quantity for goal in goals if goal.name == "operational_animals")
         if self._pending_animals(state) == 0 and self._animal_count(state) < animal_goal:
             animal = "SHEEP" if self._animal_count(state) % 2 == 0 else "COW"
-            if spending >= _ANIMAL_COST[animal] + budget.feed:
+            if (
+                state.money
+                >= _ANIMAL_COST[animal] + budget.feed + self.v2_config.operating_cash_floor
+            ):
                 orders.append(["BUY_ANIMAL", animal, 1])
                 spending -= _ANIMAL_COST[animal]
         shortfall = self._wheat_shortfall(state)
@@ -228,19 +270,26 @@ class LeaderV2Engine(CompetitiveEngine):
         crop = self._crop(state)
         seed_goal = next(goal.quantity for goal in goals if goal.name == f"plant_{crop.lower()}")
         seed_needed = max(0, seed_goal - state.seeds.get(crop, 0))
-        if seed_needed and spending >= _SEED_COST[crop]:
-            quantity = min(seed_needed, int(spending // _SEED_COST[crop]))
+        seed_spending = max(0, spending - self.v2_config.operating_cash_floor)
+        if seed_needed and seed_spending >= _SEED_COST[crop]:
+            quantity = min(seed_needed, int(seed_spending // _SEED_COST[crop]))
             orders.append(["BUY_SEED", crop, quantity])
             spending -= quantity * _SEED_COST[crop]
-        hire_cost = self._hire_cost(state.hires_today)
         productive = sum(task.priority < 10 for task in tasks)
-        if (
-            state.hour < 4
-            and state.hires_today < 2
+        target_hands = self._hand_target(state)
+        prospective_hires = state.hires_today
+        while (
+            state.hour == 1
+            and len(state.hand_positions) + prospective_hires - state.hires_today < target_hands
             and productive > len(state.units()) + 2
-            and spending >= hire_cost + budget.labor
+            and len(orders) < self.v2_config.max_orders
         ):
+            hire_cost = self._hire_cost(prospective_hires)
+            if spending < hire_cost:
+                break
             orders.append(["HIRE"])
+            spending -= hire_cost
+            prospective_hires += 1
         land_cost = (
             (1000, 2000, 4000)[max(0, len(state.unlocked_quadrants) - 1)]
             if len(state.unlocked_quadrants) < 4
@@ -267,15 +316,19 @@ class LeaderV2Engine(CompetitiveEngine):
             if item not in _PRODUCTS or amount <= 0:
                 continue
             retain = (
-                self._wheat_shortfall(state)
-                if item == "WHEAT"
-                else 1
-                if item == "FERTILIZER"
-                else 0
+                # Food is an operational reserve, not surplus. Retaining one
+                # full feeding cycle gives the allocator time to collect it
+                # from the shed before the following daily refresh.
+                self._animal_count(state) if item == "WHEAT" else 0
+            )
+            recurring_cashflow = item == "FERTILIZER" or (
+                item in {"EGG", "MILK", "WOOL"} and amount >= 4
             )
             if (
                 pressure
                 or self._closing(state)
+                or state.money < self.v2_config.operating_cash_floor
+                or recurring_cashflow
                 or projected.get(item, 0) <= state.prices.get(item, 0)
             ):
                 quantity = max(0, amount - retain)
@@ -288,6 +341,19 @@ class LeaderV2Engine(CompetitiveEngine):
 
     def _closing(self, state: NormalizedState) -> bool:
         return state.day >= self.v2_config.closing_day
+
+    def _hand_target(self, state: NormalizedState) -> int:
+        if state.day <= 1:
+            return 1
+        if state.day == 2:
+            return 3
+        if state.day <= 5:
+            return 4
+        if state.day <= 9:
+            return 7
+        if self._closing(state):
+            return min(8, self.v2_config.max_hands)
+        return self.v2_config.max_hands
 
     @staticmethod
     def _ripe(tile: Tile, state: NormalizedState) -> bool:
