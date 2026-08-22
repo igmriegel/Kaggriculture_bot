@@ -3,9 +3,9 @@
 from typing import Any
 
 from agent.core.validation import validate_action
-from agent.engines.competitive import CompetitiveEngine
+from agent.engines.leader_v2 import LeaderV2Engine
 
-_ENGINE = CompetitiveEngine()
+_ENGINE = LeaderV2Engine()
 
 
 def agent(obs: dict[str, Any], configuration: dict[str, Any] | None = None) -> dict[str, Any]:

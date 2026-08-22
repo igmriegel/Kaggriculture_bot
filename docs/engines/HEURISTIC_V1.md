@@ -1,8 +1,8 @@
 # Heuristic V1
 
-## Competitive candidate
+## Historical competitive candidate
 
-`competitive` replaces V1 at the submission entry point. It uses the official
+`competitive` previously replaced V1 at the submission entry point. It uses the official
 farmer and hand action shape, assigns distinct board targets by urgency and
 distance, sells from the shed before capacity loss, and keeps purchases below a
 cash reserve. Its current verified scope is tactical use of crop, shed, hand,

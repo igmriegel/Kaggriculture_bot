@@ -9,11 +9,11 @@ farm-playing agent feel calm and dependable. Strategy code stays separate from
 the game adapter and runner, so you can improve the bot without rewriting the
 submission boundary each time.
 
-The current submission candidate is **`competitive`**. It plans actions for
-the farmer and every active hand, prioritising yield, watering, feeding,
-weeds, collection, shed capacity, and safe liquidation. When a command cannot
-be established from the observation, the submission boundary falls back to
-`PASS` rather than inventing a mechanic.
+The current submission candidate is **`leader-v2`**, a deterministic cycle
+planner benchmarked from leader replays. It creates a daily economic budget,
+explicit production goals, and exclusive unit-task reservations before acting.
+When a command cannot be established from the observation, the submission
+boundary falls back to `PASS` rather than inventing a mechanic.
 
 ## What is included
 
@@ -21,7 +21,8 @@ be established from the observation, the submission boundary falls back to
 - A strategy-agnostic episode runner with deterministic seeds and time limits.
 - JSON episode reports and optional JSONL decision traces.
 - Built-in PASS, deterministic-random, and self-play scenarios.
-- Three engines: a conservative baseline, `heuristic-v1`, and `competitive`.
+- Five engines: a conservative baseline, `heuristic-v1`, `competitive`,
+  `leader-inspired`, and the submission candidate `leader-v2`.
 - A submission packager that produces a tarball with `main.py` at its root.
 - Unit tests and quality gates for the public harness and the V1 policy.
 
@@ -102,24 +103,23 @@ flowchart LR
 | `tests/` | Regression coverage for policy, harness, artifacts, and packaging. |
 | `docs/` | Architecture decisions, operational guides, and engine notes. |
 
-## Competitive engine, in plain language
+## Leader V2 engine, in plain language
 
-The competitive engine allocates one legal task per available unit:
+The Leader V2 engine plans a complete production cycle before allocating one
+legal task per available unit:
 
-1. Harvest held crop or animal output, then water and feed obligations.
-2. Remove weeds, collect fertilizer, care for animals, and route inventories to the shed.
-3. Divide remaining watering, harvesting, cleanup, and planting targets among hands.
-4. Sell before shed overflow and liquidate known shed stock near the season close.
-5. Buy a bounded number of economically ranked seeds while retaining cash reserve.
+1. Reserve daily budget for feed, animals, seeds, labor, and cash safety.
+2. Complete harvest, feed, care, fertilizer, watering, and storage obligations.
+3. Reserve each worker to one productive target, preventing duplicate pickup and drop trips.
+4. Buy an animal only when its structure, placement, feed, and care chain is operational.
+5. Sell from price projections to fund positive investments, free shed capacity, or close the season.
 
-This is intentionally not an all-knowing economic model yet. Animal care,
-workers, fertilizer, land purchases, and advanced market rules will be enabled
-only after their official fields and preconditions are captured in fixtures.
-That restraint is a feature: the submission boundary should never invent game
-mechanics.
+The engine uses only officially observed state and action fields. Its budget,
+goals, and reservations are deliberately explicit so future strategies can be
+tested without coupling them to the adapter or submission boundary.
 
-Read the [engine policy](docs/engines/HEURISTIC_V1.md) for verified protocol
-constraints, safeguards, and promotion criteria.
+Read the [leader engine policy](docs/engines/LEADER_INSPIRED.md) for replay
+provenance, safeguards, and benchmark criteria.
 
 ## Development workflow
 
@@ -139,12 +139,11 @@ Useful references:
 
 ## Status
 
-The `competitive` crop-first candidate has passed the local official 20-seed
-development and 20-seed confirmation matrices against PASS, the official
-random agent, and V1 with zero fallbacks. Read the
+The `leader-v2` cycle planner passed the local official 20-seed development
+and independent 40-seed confirmation matrices against PASS, the official
+random agent, and `competitive`, with zero errors or fallbacks. Read the
 [engine evidence](docs/operations/ENGINE_EVIDENCE.md) for exact results and
-reproduction commands. Richer expansion is intentionally gated on preserving
-that evidence.
+reproduction commands. Future changes are gated on preserving that evidence.
 
 ---
 

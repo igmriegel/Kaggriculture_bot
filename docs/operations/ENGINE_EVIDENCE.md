@@ -1,14 +1,13 @@
-# Competitive engine evidence
+# Engine evidence
 
 ## Candidate and protocol
 
-The submission candidate is `competitive`, a deterministic crop-first policy.
-It buys four-carrot seed batches, selected from a same-seed local sweep of
-4/8/12/16 units (seed 1: $4803/$4723/$4643/$4563), plants and waters on the planting day,
-waits for the official two-day maturity threshold, harvests, routes carried
-output to the shed, and sells only official market products. It retains animal
-care actions for observed animals, but does not make animal expansion part of
-the proven opening.
+The submission candidate is `leader-v2`, a deterministic full-cycle planner
+inspired by leader replay behavior. It sets daily budgets, gives production
+goals deadlines, reserves every worker to one target, and only expands animals
+when their structure, placement, feed, care, and output chain can operate.
+It sells using projected prices and storage pressure rather than liquidating
+every item immediately.
 
 The harness stores normalized before/after snapshots on every JSONL turn event:
 cash, position, hands, tile counts, shed, seeds, actions, fallback reason, and
@@ -34,43 +33,39 @@ The one self-play loss (seed 13, 5634 vs 5684) is a 50-money market-ordering
 asymmetry. It produced no invalid action or fallback; self-play is retained as
 a stability check, not a win-rate promotion gate.
 
-## Leader V2 development evidence
+## Leader V2 promotion evidence
 
-`leader-v2` is experimental and is not the submission candidate. It combines
-daily budgets, production goals, reserved unit tasks, and price-aware sales.
-The development matrix completed with zero errors and fallbacks:
+`leader-v2` completed its development and independent confirmation matrices
+with zero errors and fallbacks. The confirmation threshold was at least 75%
+wins against PASS and 50% against random and `competitive`.
 
 | Split | Opponent | Result | Average candidate money |
 | --- | --- | --- | ---: |
 | Development seeds 1–20 | PASS | 20 / 20 wins | 14891.45 |
 | Development seeds 1–20 | official `random_agent` | 20 / 20 wins | 15449.80 |
 | Development seeds 1–20 | `competitive` | 20 / 20 wins | 13964.85 |
+| Confirmation seeds 41–80 | PASS | 40 / 40 wins | 14746.25 |
+| Confirmation seeds 41–80 | official `random_agent` | 40 / 40 wins | 15656.20 |
+| Confirmation seeds 41–80 | `competitive` | 40 / 40 wins | 14776.02 |
 
-Before promotion, run its independent confirmation scenarios on seeds 41–80
-and require at least 75% wins against PASS and 50% against each other opponent,
-with zero errors and fallbacks.
+The confirmation fingerprints are PASS `ad8ac6f0ea1f96fa`, random
+`acb6b780eb24e591`, and `competitive` `1da3584718e6536f`.
 
 ## Reproduction
 
 ```bash
-uv run --python 3.11 --group competition python -m agent.harness benchmark \
-  --scenario competitive-pass-development
-uv run --python 3.11 --group competition python -m agent.harness benchmark \
-  --scenario competitive-random-development
-uv run --python 3.11 --group competition python -m agent.harness benchmark \
-  --scenario competitive-v1-development
-uv run --python 3.11 --group competition python -m agent.harness benchmark \
-  --scenario competitive-pass-confirmation
-uv run --python 3.11 --group competition python -m agent.harness benchmark \
-  --scenario competitive-random-confirmation
-uv run --python 3.11 --group competition python -m agent.harness benchmark \
-  --scenario competitive-v1-confirmation
 uv run --python 3.11 --group competition python -m agent.harness benchmark \
   --scenario leader-v2-pass-development
 uv run --python 3.11 --group competition python -m agent.harness benchmark \
   --scenario leader-v2-random-development
 uv run --python 3.11 --group competition python -m agent.harness benchmark \
   --scenario leader-v2-competitive-development
+uv run --python 3.11 --group competition python -m agent.harness benchmark \
+  --scenario leader-v2-pass-confirmation
+uv run --python 3.11 --group competition python -m agent.harness benchmark \
+  --scenario leader-v2-random-confirmation
+uv run --python 3.11 --group competition python -m agent.harness benchmark \
+  --scenario leader-v2-competitive-confirmation
 ```
 
 The result files are generated evidence and remain outside the submission

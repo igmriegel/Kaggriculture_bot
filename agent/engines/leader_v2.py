@@ -96,13 +96,20 @@ class LeaderV2Engine(CompetitiveEngine):
             point = (tile.x, tile.y)
             if self._ripe(tile, state):
                 tasks.append(Task(0, point, ["HARVEST"], reservation=("tile", point)))
-            elif tile.animal and not tile.fed_today:
-                tasks.append(Task(1, point, ["FEED"], _has_wheat, ("tile", point)))
-            elif tile.animal and not tile.cared_today:
-                tasks.append(Task(2, point, ["CARE"], reservation=("tile", point)))
-            elif tile.animal and tile.fertilizer_available:
-                tasks.append(Task(3, point, ["COLLECT_FERTILIZER"], reservation=("tile", point)))
-            elif tile.kind == "PLANT" and not tile.watered_today:
+                continue
+            if tile.animal:
+                if not tile.fed_today:
+                    tasks.append(Task(1, point, ["FEED"], _has_wheat, ("tile", point)))
+                if tile.fertilizer_available:
+                    # Available fertilizer is already-produced output; collect it before
+                    # issuing another care action on the same animal.
+                    tasks.append(
+                        Task(2, point, ["COLLECT_FERTILIZER"], reservation=("tile", point))
+                    )
+                elif not tile.cared_today:
+                    tasks.append(Task(3, point, ["CARE"], reservation=("tile", point)))
+                continue
+            if tile.kind == "PLANT" and not tile.watered_today:
                 tasks.append(Task(4, point, ["WATER"], reservation=("tile", point)))
 
         pending = self._pending_animals(state)

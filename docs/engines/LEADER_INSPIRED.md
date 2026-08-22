@@ -19,13 +19,13 @@ and expansion. Crops move from wheat to strawberry and back to wheat later in
 the season. Products are sold from the shed every turn, so the strategy remains
 safe under capacity pressure.
 
-`leader-v2` is the successor experiment. It creates an explicit daily budget,
+`leader-v2` is the promoted successor. It creates an explicit daily budget,
 production goals, and a one-unit-per-target reservation plan before producing
 commands. It only buys an animal when the plan can reserve its structure,
 pickup, placement, and feed chain. Its development scenarios use seeds 1–20;
-its confirmation scenarios use seeds 41–80. Promotion requires at least 75%
-wins against PASS and 50% against random and `competitive`, with no errors or
-fallbacks.
+its independent confirmation scenarios use seeds 41–80. It passed all 40
+episodes against PASS, random, and `competitive`, with zero errors and
+fallbacks, exceeding the 75%/50% promotion thresholds.
 
 Run the evidence extractor without copying replay files into the repository:
 
