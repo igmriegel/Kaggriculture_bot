@@ -22,5 +22,13 @@ __all__ = [
     "TaskPlanner",
 ]
 from agent.engines.competitive import CompetitiveEngine
+from agent.engines.leader_inspired import LeaderInspiredConfig, LeaderInspiredEngine
+from agent.engines.leader_v2 import LeaderV2Config, LeaderV2Engine
 
-__all__ = ["CompetitiveEngine"]
+__all__ = [
+    "CompetitiveEngine",
+    "LeaderInspiredConfig",
+    "LeaderInspiredEngine",
+    "LeaderV2Config",
+    "LeaderV2Engine",
+]

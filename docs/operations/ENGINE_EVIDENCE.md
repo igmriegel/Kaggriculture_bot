@@ -34,6 +34,22 @@ The one self-play loss (seed 13, 5634 vs 5684) is a 50-money market-ordering
 asymmetry. It produced no invalid action or fallback; self-play is retained as
 a stability check, not a win-rate promotion gate.
 
+## Leader V2 development evidence
+
+`leader-v2` is experimental and is not the submission candidate. It combines
+daily budgets, production goals, reserved unit tasks, and price-aware sales.
+The development matrix completed with zero errors and fallbacks:
+
+| Split | Opponent | Result | Average candidate money |
+| --- | --- | --- | ---: |
+| Development seeds 1–20 | PASS | 20 / 20 wins | 14891.45 |
+| Development seeds 1–20 | official `random_agent` | 20 / 20 wins | 15449.80 |
+| Development seeds 1–20 | `competitive` | 20 / 20 wins | 13964.85 |
+
+Before promotion, run its independent confirmation scenarios on seeds 41–80
+and require at least 75% wins against PASS and 50% against each other opponent,
+with zero errors and fallbacks.
+
 ## Reproduction
 
 ```bash
@@ -49,6 +65,12 @@ uv run --python 3.11 --group competition python -m agent.harness benchmark \
   --scenario competitive-random-confirmation
 uv run --python 3.11 --group competition python -m agent.harness benchmark \
   --scenario competitive-v1-confirmation
+uv run --python 3.11 --group competition python -m agent.harness benchmark \
+  --scenario leader-v2-pass-development
+uv run --python 3.11 --group competition python -m agent.harness benchmark \
+  --scenario leader-v2-random-development
+uv run --python 3.11 --group competition python -m agent.harness benchmark \
+  --scenario leader-v2-competitive-development
 ```
 
 The result files are generated evidence and remain outside the submission

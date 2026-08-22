@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from agent.analysis.replays import audit_replays, write_audit
 from agent.harness.execution import EpisodeRunner
 from agent.harness.models import RunConfig
 from agent.harness.registry import get_adapter, get_agent, get_scenario
@@ -32,6 +33,10 @@ def main(argv: list[str] | None = None) -> int:
     benchmark.add_argument("--output", default="reports")
     report = commands.add_parser("report")
     report.add_argument("--input", required=True)
+    audit = commands.add_parser("audit-replays")
+    audit.add_argument("--input", required=True, nargs="+")
+    audit.add_argument("--output", default="reports/leader-replay-audit")
+    audit.add_argument("--leader", default="Ryo Hasegawa")
     validate = commands.add_parser("validate-submission")
     validate.add_argument("--path", required=True)
     package = commands.add_parser("package-submission")
@@ -43,6 +48,8 @@ def main(argv: list[str] | None = None) -> int:
         return _benchmark(args)
     if args.command == "report":
         return _report(args)
+    if args.command == "audit-replays":
+        return _audit_replays(args)
     if args.command == "package-submission":
         return _package_submission(args)
     return _validate_submission(args)
@@ -111,6 +118,18 @@ def _report(args: argparse.Namespace) -> int:
     path = Path(args.input)
     episodes = list(path.rglob("episode.json"))
     print(f"{len(episodes)} episode summaries found")
+    return 0
+
+
+def _audit_replays(args: argparse.Namespace) -> int:
+    paths = [Path(item) for item in args.input]
+    missing = [str(path) for path in paths if not path.is_file()]
+    if missing:
+        print(f"replay files not found: {', '.join(missing)}")
+        return 1
+    report = audit_replays(paths, leader_name=args.leader)
+    json_path, markdown_path = write_audit(report, Path(args.output))
+    print(f"audited {len(paths)} replay(s): {json_path} and {markdown_path}")
     return 0
 
 

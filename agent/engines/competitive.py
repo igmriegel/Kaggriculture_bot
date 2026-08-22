@@ -188,6 +188,6 @@ class CompetitiveEngine:
 
     @staticmethod
     def _shed_tiles(state: NormalizedState) -> tuple[tuple[int, int], ...]:
-        size = max((max(tile.x, tile.y) for tile in state.tiles), default=9) + 1
+        size = state.board_size
         half = size // 2
         return ((half - 1, half - 1), (half, half - 1), (half - 1, half), (half, half))

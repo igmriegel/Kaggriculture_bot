@@ -1,5 +1,6 @@
 """Strategy-agnostic episode orchestration."""
 
+from collections import Counter
 from collections.abc import Callable, Sequence
 from hashlib import sha256
 from time import perf_counter
@@ -154,6 +155,7 @@ def _metrics(records: list[TurnRecord], observation: dict[str, Any]) -> dict[str
     farm = farms[player] if isinstance(player, int) and 0 <= player < len(farms) else {}
     return {
         "action_counts": actions,
+        "economic": _economic_metrics(records),
         "latency_ms": {
             "mean": sum(latencies) / len(latencies) if latencies else None,
             "max": max(latencies) if latencies else None,
@@ -161,6 +163,70 @@ def _metrics(records: list[TurnRecord], observation: dict[str, Any]) -> dict[str
         "final_shed": private.get("shed", {}) if isinstance(private.get("shed"), dict) else {},
         "final_seeds": private.get("seeds", {}) if isinstance(private.get("seeds"), dict) else {},
         "final_money": farm.get("money") if isinstance(farm, dict) else None,
+    }
+
+
+def _economic_metrics(records: list[TurnRecord]) -> dict[str, Any]:
+    """Daily evidence for strategy promotion; values derive only from turn records."""
+    daily: dict[int, dict[str, Any]] = {}
+    capital: Counter[str] = Counter()
+    harvested_actions = 0
+    shed_operations = 0
+    idle_actions = 0
+    for record in records:
+        before = record.observation_before
+        after = record.observation_after
+        raw_day = before.get("day")
+        day = raw_day if isinstance(raw_day, int) else -1
+        if day not in daily:
+            daily[day] = {
+                "money_start": before.get("money"),
+                "money_end": before.get("money"),
+                "market_orders": Counter(),
+                "action_counts": Counter(),
+            }
+        entry = daily[day]
+        entry["money_end"] = after.get("money", entry["money_end"])
+        commands = [
+            record.action_sent.get("farmer", ["PASS"]),
+            *record.action_sent.get("hands", []),
+        ]
+        for command in commands:
+            operation = command[0] if command and isinstance(command[0], str) else "PASS"
+            entry["action_counts"][operation] += 1
+            harvested_actions += int(operation == "HARVEST")
+            shed_operations += int(operation in {"PICKUP", "DROP"})
+            idle_actions += int(operation == "PASS")
+        for order in record.action_sent.get("market", []):
+            if not order or not isinstance(order[0], str):
+                continue
+            operation = order[0]
+            quantity = int(order[2]) if len(order) > 2 and isinstance(order[2], int) else 1
+            entry["market_orders"][operation] += quantity
+            if operation in {"BUY_ANIMAL", "BUY_PRODUCT", "BUY_SEED", "HIRE", "BUY_LAND"}:
+                capital[operation] += quantity
+    days = []
+    for day, entry in sorted(daily.items()):
+        start = entry["money_start"]
+        end = entry["money_end"]
+        days.append(
+            {
+                "day": day,
+                "money_start": start,
+                "money_end": end,
+                "money_delta": end - start
+                if isinstance(start, int | float) and isinstance(end, int | float)
+                else None,
+                "market_orders": dict(entry["market_orders"]),
+                "action_counts": dict(entry["action_counts"]),
+            }
+        )
+    return {
+        "daily": days,
+        "capital_investment_orders": dict(capital),
+        "harvested_actions": harvested_actions,
+        "shed_operations": shed_operations,
+        "idle_actions": idle_actions,
     }
 
 
@@ -199,4 +265,5 @@ def _observation_summary(observation: dict[str, Any]) -> dict[str, Any]:
         "tile_counts": counts,
         "shed": private.get("shed", {}) if isinstance(private, dict) else {},
         "seeds": private.get("seeds", {}) if isinstance(private, dict) else {},
+        "unit_inventories": private.get("inventories", []) if isinstance(private, dict) else [],
     }

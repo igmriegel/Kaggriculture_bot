@@ -21,6 +21,8 @@
    action-family counts, and economics.
 3. Implement V3 ordered hands, Fibonacci hiring analysis, and safe land
    purchase planning.
+4. Run the leader-inspired engine through the official multi-seed matrix and
+   promote it only if replay fidelity and safety evidence remain reproducible.
 
 ## P2
 

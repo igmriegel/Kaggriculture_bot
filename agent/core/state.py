@@ -46,6 +46,7 @@ class NormalizedState:
     shed: dict[str, int]
     unit_inventories: tuple[dict[str, int], ...]
     shed_capacity: int
+    board_size: int
     prices: dict[str, float]
     market_inventory: dict[str, int]
     shops: tuple[str, ...]
@@ -121,6 +122,14 @@ class NormalizedState:
             shed=shed,
             unit_inventories=unit_inventories,
             shed_capacity=_integer(observation.get("shedCapacity", 100)) or 100,
+            board_size=max(
+                len(farm.get("tiles", [])),
+                max(
+                    (len(row) for row in farm.get("tiles", []) if isinstance(row, list)),
+                    default=0,
+                ),
+                1,
+            ),
             prices=_prices(market),
             market_inventory=_quantities(
                 market.get("inventory") if isinstance(market, dict) else {}
