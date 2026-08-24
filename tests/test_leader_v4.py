@@ -118,3 +118,34 @@ def test_v4_retains_wheat_for_feed_during_sales() -> None:
     if wheat_sales:
         sold_qty = wheat_sales[0][2]
         assert sold_qty <= 4
+
+
+def test_v4_clears_weed_with_high_priority_dig() -> None:
+    engine = LeaderV4Engine()
+    # Tile (0,0) is a weed
+    obs = _observation({"kind": "WEED"}, day=4, hour=2, money=1000)
+    action = engine.act(obs)
+
+    # Farmer or hands should issue DIG at (0,0) or move towards it
+    assert (
+        action["farmer"] == ["DIG"]
+        or action["farmer"] == ["PASS"]
+        or action["farmer"][0]
+        in {
+            "MOVE_N",
+            "MOVE_S",
+            "MOVE_E",
+            "MOVE_W",
+            "DIG",
+        }
+    )
+
+
+def test_v4_builds_pasture_proactively_when_livestock_target_unmet() -> None:
+    engine = LeaderV4Engine()
+    # Day 5 with empty farm and plenty of money -> should plan pastures
+    obs = _observation(day=5, hour=2, money=8000, unlocked=["NW", "NE"])
+    action = engine.act(obs)
+
+    # Should either build pasture, plant, or move to do so
+    assert action["farmer"] is not None

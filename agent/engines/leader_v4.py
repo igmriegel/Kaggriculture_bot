@@ -85,14 +85,19 @@ class LeaderV4Engine(LeaderV2Engine):
         horizon = max(0, 30 - state.day)
         empty = self._empty_tiles(state)
 
-        # 1. Livestock goals (Cow & Sheep)
+        # 1. Dynamic Livestock goals (Cow & Sheep) based on expected ROI
         quadrants = len(state.unlocked_quadrants)
-        max_pastures = (
-            4 if quadrants == 1 else (12 if quadrants == 2 else self.v4_config.max_animals)
-        )
-        if state.day >= 22:
-            target_animals = self._animal_count(state)
+        max_pastures = 4 if quadrants == 1 else (8 if quadrants == 2 else 12)
+
+        # Check animal EV
+        cow_ev = self._calculate_animal_ev("COW", state, horizon)
+        sheep_ev = self._calculate_animal_ev("SHEEP", state, horizon)
+
+        current_animals = self._animal_count(state) + self._pending_animals(state)
+        if horizon < 8 or (cow_ev <= 0 and sheep_ev <= 0):
+            target_animals = current_animals
         else:
+            # We want to grow livestock sustainably as long as EV is positive
             target_animals = min(max_pastures, self.v4_config.max_animals)
 
         goals: list[ProductionGoal] = [
@@ -106,6 +111,29 @@ class LeaderV4Engine(LeaderV2Engine):
                 goals.append(ProductionGoal(f"plant_{crop.lower()}", qty, state.day + 1))
 
         return tuple(goals)
+
+    def _calculate_animal_ev(self, animal: str, state: NormalizedState, horizon: int) -> float:
+        """Calculate expected net profit from buying an animal now."""
+        first_yield = 8 if animal == "COW" else 6
+        interval = 2 if animal == "COW" else 3
+        cost = _ANIMAL_COST.get(animal, 400)
+        product = "MILK" if animal == "COW" else "WOOL"
+
+        if horizon <= first_yield:
+            return -float(cost)
+
+        productive_days = horizon - first_yield
+        cycles = productive_days // interval + 1
+        product_price = state.prices.get(product, 160.0 if animal == "COW" else 200.0)
+        fert_price = state.prices.get("FERTILIZER", 100.0)
+        wheat_price = state.prices.get("WHEAT", 25.0)
+
+        feed_cost = horizon * wheat_price
+        product_rev = cycles * product_price
+        fert_rev = (horizon // 2) * fert_price
+
+        expected_profit = (product_rev + fert_rev) - (cost + feed_cost)
+        return expected_profit
 
     def _dynamic_crop_portfolio(
         self, state: NormalizedState, horizon: int, empty_slots: int
@@ -199,22 +227,35 @@ class LeaderV4Engine(LeaderV2Engine):
                     Task(2 if opening else 3, point, ["WATER"], _any_inventory, ("tile", point))
                 )
 
+        # 3.5. DIG WEEDS (HIGH PRIORITY 3) - Free up infested tiles immediately
+        for tile in state.tiles:
+            if tile.kind == "WEED":
+                point = (tile.x, tile.y)
+                tasks.append(Task(3, point, ["DIG"], _any_inventory, ("tile", point)))
+
         # 4. Pasture expansion & Animal placement
-        pending_animals = self._pending_animals(state)
-        open_pastures = [t for t in state.tiles if t.kind == "PASTURE" and not t.animal]
-        planned_animals = (
-            self.v4_config.opening_animals
-            if state.day == 0 and state.hour == 1 and not any(state.shed.values())
-            else pending_animals
-        )
-        build_count = max(0, planned_animals - len(open_pastures))
+        target_animals = next((g.quantity for g in goals if g.name == "operational_animals"), 0)
+        total_pastures = [t for t in state.tiles if t.kind == "PASTURE"]
+        open_pastures = [t for t in total_pastures if not t.animal]
+
+        # Build pasture if open pastures are less than needed to reach target_animals
+        build_count = max(0, min(target_animals - len(total_pastures), 2))
+        if opening:
+            build_count = max(build_count, self.v4_config.opening_animals - len(open_pastures))
+
         for tile in sorted(
             (t for t in state.tiles if t.kind is None),
             key=lambda t: (self._distance(state.position, (t.x, t.y)), t.y, t.x),
         )[:build_count]:
             point = (tile.x, tile.y)
             tasks.append(
-                Task(1 if opening else 5, point, ["BUILD_PASTURE"], _any_inventory, ("tile", point))
+                Task(
+                    1 if opening else 4,
+                    point,
+                    ["BUILD_PASTURE"],
+                    _any_inventory,
+                    ("tile", point),
+                )
             )
 
         for tile in open_pastures:
@@ -236,7 +277,9 @@ class LeaderV4Engine(LeaderV2Engine):
 
         # 6. Feed pickups (Wheat from shed to feed animals)
         hungry_animals = sum(1 for tile in state.tiles if tile.animal and not tile.fed_today)
-        feed_pickups = min(len(self._shed_tiles(state)), (hungry_animals + 1) // 2)
+        wheat_in_hands = sum(inv.get("WHEAT", 0) for inv in state.unit_inventories)
+        needed_feed_pickups = max(0, hungry_animals - wheat_in_hands)
+        feed_pickups = min(len(self._shed_tiles(state)), (needed_feed_pickups + 1) // 2)
         available_wheat = state.shed.get("WHEAT", 0)
         if available_wheat > 0 and feed_pickups:
             reserved_wheat = 0
@@ -273,13 +316,7 @@ class LeaderV4Engine(LeaderV2Engine):
                 )
             empty_tiles = empty_tiles[count:]
 
-        # 8. Dig weeds
-        for tile in state.tiles:
-            if tile.kind == "WEED":
-                point = (tile.x, tile.y)
-                tasks.append(Task(10, point, ["DIG"], _any_inventory, ("tile", point)))
-
-        # 9. Drop products to shed
+        # 8. Drop products to shed
         for index, inventory in enumerate(state.unit_inventories):
             if inventory and any(item in _PRODUCTS for item in inventory):
                 point = state.units()[index]
@@ -311,6 +348,10 @@ class LeaderV4Engine(LeaderV2Engine):
     def _build_market_orders(
         self, state: NormalizedState, goals: tuple[ProductionGoal, ...], tasks: list[Task]
     ) -> list[list[Any]]:
+        # Day 0 Hour 0: No purchases before hour 1 opening
+        if state.day == 0 and state.hour == 0:
+            return []
+
         # 1. Day 0 Hour 1 Opening (Big Bang)
         if state.day == 0 and state.hour == 1:
             return [
@@ -481,9 +522,11 @@ class LeaderV4Engine(LeaderV2Engine):
         unoccupied_pastures = sum(
             1 for t in state.tiles if t.kind == "PASTURE" and t.animal is None
         )
-        return unoccupied_pastures > self._pending_animals(state) and sum(state.shed.values()) < (
-            state.shed_capacity - 3
+        empty_tiles = sum(1 for t in state.tiles if t.kind is None)
+        has_space_or_pasture = (unoccupied_pastures > self._pending_animals(state)) or (
+            empty_tiles > 0 and self._pending_animals(state) == 0
         )
+        return has_space_or_pasture and sum(state.shed.values()) < (state.shed_capacity - 3)
 
     def _has_pending_chain(self, state: NormalizedState) -> bool:
         if any(
