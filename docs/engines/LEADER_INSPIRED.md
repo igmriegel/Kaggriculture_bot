@@ -19,6 +19,34 @@ and expansion. Crops move from wheat to strawberry and back to wheat later in
 the season. Products are sold from the shed every turn, so the strategy remains
 safe under capacity pressure.
 
+## Cycle memory in V2
+
+`leader-v2` records the emitted intention alongside a resettable in-process
+`CycleMemory`. At the next observation it confirms the observable effect (for
+example, a watered tile, reduced shed stock after pickup, or increased money
+after a sale). If the effect is absent, only that commitment becomes
+`blocked`, its divergence is counted, and the reactive planner chooses another
+legal task from the official state. The memory does not persist between games.
+
+```mermaid
+sequenceDiagram
+    participant E as Environment
+    participant M as CycleMemory
+    participant P as V2 priorities
+    participant H as Harness
+    E->>M: observation
+    M->>M: reconcile prior intent
+    M->>P: valid pending commitments + reserves
+    P->>H: action intent
+    H->>E: validated action
+    E-->>M: next observation
+```
+
+The episode report exposes commitment creation/confirmation/replanning,
+completed crop and animal cycles, repeated actions without progress,
+plan/observation divergences, and reserved versus spent cash. These values are
+evidence for promotion; the observation remains the source of truth.
+
 `leader-v2` is the promoted successor. It creates an explicit daily budget,
 production goals, and a one-unit-per-target reservation plan before producing
 commands. It only buys an animal when the plan can reserve its structure,

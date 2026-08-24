@@ -16,6 +16,23 @@ All results below use 720-turn local episodes, default official configuration,
 the installed `kaggle-environments` Kaggriculture implementation, and seeds
 1–20. Reports are generated evidence and remain outside the submission archive.
 
+## Idle/fallback audit (2026-08-24)
+
+The harness now records productive, movement, legitimate-wait, fallback-PASS,
+and idle-PASS turns. It also records idle percentage, longest PASS streak,
+day-hour heatmaps, inferred fallbacks, and lost command slots. A fresh local
+720-turn matrix on seeds 1–20 produced the following promotion decision:
+
+| Engine | Opponent | Wins | Average money | Mean idle-PASS | Errors | Fallbacks |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `leader-v2` | PASS | 20 / 20 | 22878.40 | 0.14% | 0 | 0 |
+| `leader-v3` | PASS | 0 / 20 | 503.95 | 18.62% | 0 | 0 |
+
+V3 remains experimental. The comparison references `55678735` and `55680358`
+were not available in the local workspace, so no money/win/worst-quartile claim
+against those submissions is made. Only the two locally available leader
+replays were audited; the other twelve replays named in the task were absent.
+
 ## Reproduced development results
 
 | Split | Opponent | Result | Average candidate money |

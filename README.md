@@ -25,8 +25,10 @@ boundary falls back to `PASS` rather than inventing a mechanic.
 - Built-in PASS, deterministic-random, and self-play scenarios.
 - Six engines: a conservative baseline, `heuristic-v1`, `competitive`,
   `leader-inspired`, and the submission candidate `leader-v2`.
-The isolated `leader-v3` engine adds deterministic crop/animal portfolio
-planning and is benchmark-only until it satisfies the promotion gate.
+The experimental `leader-v3` adds deterministic crop/animal portfolio
+planning, daily worker refresh handling, feed/stock reservations, and explicit
+recovery before expansion. Promotion still requires the multi-seed evidence
+gate.
 - A submission packager that produces a tarball with `main.py` at its root.
 - Unit tests and quality gates for the public harness and the V1 policy.
 
@@ -106,6 +108,7 @@ flowchart LR
     V --> K[Kaggriculture environment]
     K --> H[agent.harness]
     H --> R[JSON / JSONL evidence]
+    R --> A[Idle/fallback audit and HTML dashboard]
 ```
 
 | Area | Responsibility |
