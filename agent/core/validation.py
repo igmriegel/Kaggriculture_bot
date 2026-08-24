@@ -65,7 +65,7 @@ def _safe_unit(
 ) -> list[Any] | None:
     try:
         _validate_unit(command)
-        if observation is not None:
+        if isinstance(observation, dict) and _has_observation_contract(observation):
             candidate = (
                 Action(farmer=command)
                 if index == 0
@@ -83,7 +83,7 @@ def _safe_order(
 ) -> list[Any] | None:
     try:
         _validate_order(order)
-        if observation is not None:
+        if isinstance(observation, dict) and _has_observation_contract(observation):
             _validate_against_observation(Action(market=[order]), observation)
         return order
     except Exception as exc:
@@ -104,6 +104,10 @@ def _has_hand_slot(observation: dict[str, Any] | None, index: int) -> bool:
         return False
     hands = farms[player].get("hands")
     return isinstance(hands, list) and index <= len(hands)
+
+
+def _has_observation_contract(observation: dict[str, Any] | None) -> bool:
+    return isinstance(observation, dict) and isinstance(observation.get("farms"), list)
 
 
 def _market_order_limit(observation: dict[str, Any] | None) -> int:
@@ -177,6 +181,14 @@ def _validate_against_observation(action: Action, observation: dict[str, Any]) -
     for order in action.market:
         if order[0] == "SELL" and _positive_or_zero(shed.get(order[1])) < _positive(order[2]):
             raise ValueError("sell exceeds shed inventory")
+        if order[0] == "BUY_PRODUCT":
+            market_raw = observation.get("market")
+            market = market_raw if isinstance(market_raw, dict) else {}
+            inventory_raw = market.get("inventory")
+            inventory = inventory_raw if isinstance(inventory_raw, dict) else {}
+            available = inventory.get(order[1])
+            if available is not None and _positive_or_zero(available) < _positive(order[2]):
+                raise ValueError("buy exceeds market inventory")
 
 
 def _validate_unit_legality(
