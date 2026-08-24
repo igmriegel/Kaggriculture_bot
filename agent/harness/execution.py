@@ -163,6 +163,39 @@ def _metrics(records: list[TurnRecord], observation: dict[str, Any]) -> dict[str
         "final_shed": private.get("shed", {}) if isinstance(private.get("shed"), dict) else {},
         "final_seeds": private.get("seeds", {}) if isinstance(private.get("seeds"), dict) else {},
         "final_money": farm.get("money") if isinstance(farm, dict) else None,
+        "portfolio": _portfolio_metrics(records, observation),
+    }
+
+
+def _portfolio_metrics(records: list[TurnRecord], observation: dict[str, Any]) -> dict[str, Any]:
+    """Comparable strategy metrics derived from normalized turn snapshots."""
+    sales_value = 0
+    used_units = 0
+    available_units = 0
+    for record in records:
+        before = record.observation_before
+        prices = before.get("prices", {}) if isinstance(before.get("prices"), dict) else {}
+        commands = [
+            record.action_sent.get("farmer", ["PASS"]),
+            *record.action_sent.get("hands", []),
+        ]
+        available_units += len(commands)
+        used_units += sum(1 for command in commands if command and command[0] != "PASS")
+        for order in record.action_sent.get("market", []):
+            if len(order) >= 3 and order[0] == "SELL" and isinstance(order[1], str):
+                quantity = int(order[2]) if isinstance(order[2], int) else 1
+                sales_value += quantity * int(prices.get(order[1], 0))
+    final = _observation_summary(observation)
+    return {
+        "animals": final.get("animal_count", 0),
+        "crops": final.get("crop_count", 0),
+        "hands": len(final.get("hands") or []),
+        "sales_value": sales_value,
+        "feeding_lost": final.get("hungry_animals", 0),
+        "animals_escaped": final.get("escaped_animals", 0),
+        "irrigation_pending": final.get("irrigation_pending", 0),
+        "stock_wasted": final.get("stock_wasted", 0),
+        "hand_utilization": used_units / available_units if available_units else 0.0,
     }
 
 
@@ -243,6 +276,11 @@ def _observation_summary(observation: dict[str, Any]) -> dict[str, Any]:
     tiles_raw = farm.get("tiles") if isinstance(farm, dict) else None
     tiles: list[Any] = tiles_raw if isinstance(tiles_raw, list) else []
     counts: dict[str, int] = {}
+    animal_count = 0
+    crop_count = 0
+    hungry_animals = 0
+    irrigation_pending = 0
+    escaped_animals = 0
     for row in tiles:
         if not isinstance(row, list):
             continue
@@ -255,6 +293,14 @@ def _observation_summary(observation: dict[str, Any]) -> dict[str, Any]:
                 else str(tile)
             )
             counts[kind] = counts.get(kind, 0) + 1
+            if isinstance(tile, dict):
+                animal_count += int(bool(tile.get("animal")))
+                crop_count += int(tile.get("kind") == "PLANT")
+                hungry_animals += int(bool(tile.get("animal")) and not tile.get("fed_today", False))
+                irrigation_pending += int(
+                    tile.get("kind") == "PLANT" and not tile.get("watered_today", False)
+                )
+                escaped_animals += int(tile.get("kind") == "ESCAPED")
     return {
         "day": observation.get("day"),
         "hour": observation.get("hour"),
@@ -266,4 +312,13 @@ def _observation_summary(observation: dict[str, Any]) -> dict[str, Any]:
         "shed": private.get("shed", {}) if isinstance(private, dict) else {},
         "seeds": private.get("seeds", {}) if isinstance(private, dict) else {},
         "unit_inventories": private.get("inventories", []) if isinstance(private, dict) else [],
+        "prices": observation.get("market", {}).get("prices", {})
+        if isinstance(observation.get("market"), dict)
+        else {},
+        "animal_count": animal_count,
+        "crop_count": crop_count,
+        "hungry_animals": hungry_animals,
+        "irrigation_pending": irrigation_pending,
+        "escaped_animals": escaped_animals,
+        "stock_wasted": 0,
     }

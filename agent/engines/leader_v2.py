@@ -158,10 +158,21 @@ class LeaderV2Engine(CompetitiveEngine):
             )
         hungry_animals = sum(1 for tile in state.tiles if tile.animal and not tile.fed_today)
         feed_pickups = min(len(self._shed_tiles(state)), (hungry_animals + 1) // 2)
-        if state.shed.get("WHEAT", 0) > 0 and feed_pickups:
+        available_wheat = state.shed.get("WHEAT", 0)
+        if available_wheat > 0 and feed_pickups:
+            # A pickup is validated against the stock currently in the shed.
+            # Requesting two units with a one-unit reserve previously invalidated
+            # the whole turn, including otherwise legal market orders.
+            feed_quantity = min(2, available_wheat)
             for index, point in enumerate(self._shed_tiles(state)[:feed_pickups]):
                 tasks.append(
-                    Task(0, point, ["PICKUP", "WHEAT", 2], _empty_inventory, ("wheat", index))
+                    Task(
+                        0,
+                        point,
+                        ["PICKUP", "WHEAT", feed_quantity],
+                        _empty_inventory,
+                        ("wheat", index),
+                    )
                 )
 
         if not pending or state.day == 0:

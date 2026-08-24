@@ -24,6 +24,7 @@ __all__ = [
 from agent.engines.competitive import CompetitiveEngine
 from agent.engines.leader_inspired import LeaderInspiredConfig, LeaderInspiredEngine
 from agent.engines.leader_v2 import LeaderV2Config, LeaderV2Engine
+from agent.engines.leader_v3 import LeaderV3Config, LeaderV3Engine
 
 __all__ = [
     "CompetitiveEngine",
@@ -31,4 +32,6 @@ __all__ = [
     "LeaderInspiredEngine",
     "LeaderV2Config",
     "LeaderV2Engine",
+    "LeaderV3Config",
+    "LeaderV3Engine",
 ]

@@ -79,6 +79,40 @@ def projected_prices(
     return {item: market_price(item, amount) for item, amount in projected.items()}
 
 
+def marginal_sale_values(
+    item: str,
+    inventory: int,
+    quantity: int,
+    *,
+    overrides: Mapping[str, Mapping[str, object]] | None = None,
+    opponent_buffer: int = 0,
+) -> tuple[int, ...]:
+    """Return the official quote for each unit sold, including market pressure.
+
+    The environment increases market inventory after every successful sale.  A
+    conservative buffer models a simultaneous opponent selling the same item.
+    """
+    if quantity <= 0:
+        return ()
+    start = max(0, inventory + opponent_buffer)
+    return tuple(market_price(item, start + offset, overrides) for offset in range(quantity))
+
+
+def marginal_buy_costs(
+    item: str,
+    inventory: int,
+    quantity: int,
+    *,
+    overrides: Mapping[str, Mapping[str, object]] | None = None,
+    opponent_buffer: int = 0,
+) -> tuple[int, ...]:
+    """Return the official post-buy quote for each unit purchased."""
+    if quantity <= 0:
+        return ()
+    start = max(0, inventory - opponent_buffer)
+    return tuple(market_price(item, start - offset - 1, overrides) for offset in range(quantity))
+
+
 def _shape(function: str, value: float, capacity: float) -> float:
     value = max(0.0, value)
     if function == "linear":

@@ -21,8 +21,10 @@ boundary falls back to `PASS` rather than inventing a mechanic.
 - A strategy-agnostic episode runner with deterministic seeds and time limits.
 - JSON episode reports and optional JSONL decision traces.
 - Built-in PASS, deterministic-random, and self-play scenarios.
-- Five engines: a conservative baseline, `heuristic-v1`, `competitive`,
+- Six engines: a conservative baseline, `heuristic-v1`, `competitive`,
   `leader-inspired`, and the submission candidate `leader-v2`.
+The isolated `leader-v3` engine adds deterministic crop/animal portfolio
+planning and is benchmark-only until it satisfies the promotion gate.
 - A submission packager that produces a tarball with `main.py` at its root.
 - Unit tests and quality gates for the public harness and the V1 policy.
 

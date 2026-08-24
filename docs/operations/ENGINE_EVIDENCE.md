@@ -9,6 +9,9 @@ then buy four animals, melon/wheat seeds, and wheat feed. Its daily planner
 reserves feed collection before animal work, then builds, places, plants, and
 waters in opening order.
 
+`leader-v3` is available as a separate benchmark agent. It is not promoted by
+registration alone; use the matrix in `BENCHMARKS.md` and attach the generated
+JSON report before changing `main.py`.
 All results below use 720-turn local episodes, default official configuration,
 the installed `kaggle-environments` Kaggriculture implementation, and seeds
 1–20. Reports are generated evidence and remain outside the submission archive.

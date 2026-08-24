@@ -47,6 +47,10 @@ def audit_replay(path: Path, *, leader_name: str = LEADER_NAME) -> dict[str, Any
             entry[key] = snapshot[key]
     days = [_serialise_day(daily[day]) for day in sorted(daily)]
     final = days[-1] if days else {}
+    opponent_player = 1 - player if len(agents) > 1 else None
+    opponent_days = (
+        _audit_player_days(replay, opponent_player) if opponent_player is not None else []
+    )
     return {
         "source": str(path),
         "episode_id": replay.get("info", {}).get("EpisodeId"),
@@ -55,8 +59,31 @@ def audit_replay(path: Path, *, leader_name: str = LEADER_NAME) -> dict[str, Any
         "leader_score": _number(rewards[player]) if player < len(rewards) else 0,
         "opponent_score": _number(rewards[1 - player]) if len(rewards) > 1 else 0,
         "days": days,
+        "opponent_days": opponent_days,
+        "players": {
+            "leader": {"player": player, "days": days},
+            "opponent": {"player": opponent_player, "days": opponent_days},
+        },
         "final": final,
     }
+
+
+def _audit_player_days(replay: dict[str, Any], player: int) -> list[dict[str, Any]]:
+    daily: dict[int, dict[str, Any]] = {}
+    for step in replay.get("steps", []):
+        if not isinstance(step, list) or player >= len(step) or not isinstance(step[player], dict):
+            continue
+        record = step[player]
+        observation = record.get("observation", {})
+        if not isinstance(observation, dict):
+            continue
+        day = _integer(observation.get("day"))
+        entry = daily.setdefault(day, _daily_snapshot(observation, player))
+        _record_actions(entry, record.get("action"))
+        snapshot = _daily_snapshot(observation, player)
+        for key in ("money", "hands", "quadrants", "animals", "crops"):
+            entry[key] = snapshot[key]
+    return [_serialise_day(daily[day]) for day in sorted(daily)]
 
 
 def write_audit(report: dict[str, Any], output: Path) -> tuple[Path, Path]:
@@ -137,6 +164,28 @@ def _patterns(episodes: list[dict[str, Any]]) -> list[str]:
         patterns.append("purchased wheat used as an animal-feed input")
     if cared:
         patterns.append("animal care paired with feeding")
+    classifications = set()
+    for episode in episodes:
+        days = episode.get("days", [])
+        animal_orders = sum(
+            day.get("order_units", {}).get("BUY_ANIMAL:COW", 0)
+            + day.get("order_units", {}).get("BUY_ANIMAL:SHEEP", 0)
+            for day in days
+        )
+        crop_work = sum(day.get("work", {}).get("PLANT", 0) for day in days)
+        expansion = max((day.get("quadrants", 0) for day in days), default=0)
+        if animal_orders and crop_work:
+            classifications.add("hybrid")
+        elif animal_orders:
+            classifications.add("animal-first")
+        elif crop_work:
+            classifications.add("crop-only")
+        if expansion > 1 and days and days[min(2, len(days) - 1)].get("quadrants", 0) > 1:
+            classifications.add("early-expansion")
+        activity = sum(sum(day.get("orders", {}).values()) for day in days)
+        if activity < max(1, len(days) // 3):
+            classifications.add("low-activity")
+    patterns.extend(f"opponent classification: {name}" for name in sorted(classifications))
     return patterns
 
 

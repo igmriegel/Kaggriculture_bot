@@ -1,4 +1,5 @@
 from agent.core.state import NormalizedState
+from agent.core.validation import validate_action
 from agent.engines.leader_v2 import LeaderV2Engine
 from agent.harness.execution import _economic_metrics
 from agent.harness.models import TurnRecord
@@ -85,6 +86,32 @@ def test_leader_v2_collects_feed_before_other_animal_work() -> None:
     )
 
     assert action["farmer"] == ["PICKUP", "WHEAT", 2]
+
+
+def test_leader_v2_bounds_feed_pickup_to_the_current_shed_stock() -> None:
+    tiles: list[list[object]] = [
+        [
+            {"kind": "PASTURE", "animal": "COW"}
+            if y == 0 and x == 0
+            else None
+            if x < 5 and y < 5
+            else "LOCKED"
+            for x in range(10)
+        ]
+        for y in range(10)
+    ]
+    observation = _observation(
+        tiles=tiles,
+        day=1,
+        private={"shed": {"WHEAT": 1}, "seeds": {}, "inventories": [{}]},
+    )
+
+    action = LeaderV2Engine().act(observation)
+    validated, reason = validate_action(action, observation)
+
+    assert action["farmer"] == ["PICKUP", "WHEAT", 1]
+    assert reason is None
+    assert validated.model_dump() == action
 
 
 def test_leader_v2_reserves_each_animal_pickup_to_one_unit() -> None:

@@ -36,19 +36,80 @@ _ANIMAL_STRUCTURE = {"GOOSE": "COOP", "COW": "PASTURE", "SHEEP": "PASTURE"}
 def validate_action(
     raw: Any, observation: dict[str, Any] | None = None
 ) -> tuple[Action, str | None]:
-    """Return a safe command, rejecting impossible unit count, stock, and orders."""
+    """Return a safe action, replacing only independently invalid commands with PASS."""
     try:
         action = Action.model_validate(raw)
-        units = [action.farmer, *action.hands]
-        for command in units:
-            _validate_unit(command)
-        for order in action.market:
-            _validate_order(order)
-        if observation is not None:
-            _validate_against_observation(action, observation)
-        return action, None
     except Exception as exc:
         return Action.pass_action(), f"{type(exc).__name__}: {exc}"
+
+    reasons: list[str] = []
+    farmer = _safe_unit(action.farmer, 0, observation, reasons)
+    hands = [
+        _safe_unit(command, index, observation, reasons)
+        for index, command in enumerate(action.hands, start=1)
+    ]
+    market_limit = _market_order_limit(observation)
+    market = [_safe_order(order, observation, reasons) for order in action.market[:market_limit]]
+    if len(action.market) > market_limit:
+        reasons.append("ValueError: market order limit exceeded")
+    safe = Action(
+        farmer=farmer if farmer is not None else ["PASS"],
+        hands=[command for command in hands if command is not None],
+        market=[order for order in market if order is not None],
+    )
+    return safe, "; ".join(reasons) if reasons else None
+
+
+def _safe_unit(
+    command: list[Any], index: int, observation: dict[str, Any] | None, reasons: list[str]
+) -> list[Any] | None:
+    try:
+        _validate_unit(command)
+        if observation is not None:
+            candidate = (
+                Action(farmer=command)
+                if index == 0
+                else Action(farmer=["PASS"], hands=[["PASS"]] * (index - 1) + [command])
+            )
+            _validate_against_observation(candidate, observation)
+        return command
+    except Exception as exc:
+        reasons.append(_reason(exc))
+        return ["PASS"] if index == 0 or _has_hand_slot(observation, index) else None
+
+
+def _safe_order(
+    order: list[Any], observation: dict[str, Any] | None, reasons: list[str]
+) -> list[Any] | None:
+    try:
+        _validate_order(order)
+        if observation is not None:
+            _validate_against_observation(Action(market=[order]), observation)
+        return order
+    except Exception as exc:
+        reasons.append(_reason(exc))
+        return None
+
+
+def _reason(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _has_hand_slot(observation: dict[str, Any] | None, index: int) -> bool:
+    if observation is None:
+        return False
+    farms = observation.get("farms")
+    player = _positive_or_zero(observation.get("player"))
+    if not isinstance(farms, list) or player >= len(farms) or not isinstance(farms[player], dict):
+        return False
+    hands = farms[player].get("hands")
+    return isinstance(hands, list) and index <= len(hands)
+
+
+def _market_order_limit(observation: dict[str, Any] | None) -> int:
+    if observation is None:
+        return 10**9
+    return _positive_or_zero(observation.get("maxMarketOrdersPerTurn")) or 10
 
 
 def _validate_unit(command: list[Any]) -> None:
