@@ -60,6 +60,8 @@ def _update_remote(competition: str, reports_dir: Path) -> list[ReportSubmission
         ["competitions", "submissions", competition, "--format", "json", "--quiet"]
     )
     submissions: list[ReportSubmission] = []
+    logs_available = True
+    logs_warning_shown = False
     for submission in _records(listing):
         submission_id = _identifier(submission, "submission")
         destination = raw_root / _slug(submission_id) / "raw"
@@ -78,29 +80,36 @@ def _update_remote(competition: str, reports_dir: Path) -> list[ReportSubmission
                 _download(
                     ["competitions", "replay", episode_id, "--path", str(episode_dir), "--quiet"]
                 )
-            for agent_index in (0, 1):
-                if not _has_log(episode_dir, agent_index):
-                    try:
-                        _download(
-                            [
-                                "competitions",
-                                "logs",
-                                episode_id,
-                                str(agent_index),
-                                "--path",
-                                str(episode_dir),
-                                "--quiet",
-                            ]
-                        )
-                    except RuntimeError as exc:
-                        # Agent logs are useful diagnostics, but Kaggle may deny
-                        # this endpoint while still allowing submission metadata
-                        # and replays. Keep the report usable in that case.
-                        print(
-                            f"warning: agent {agent_index} logs unavailable for "
-                            f"{episode_id}: {exc}",
-                            file=sys.stderr,
-                        )
+            if logs_available:
+                for agent_index in (0, 1):
+                    if not _has_log(episode_dir, agent_index):
+                        try:
+                            _download(
+                                [
+                                    "competitions",
+                                    "logs",
+                                    episode_id,
+                                    str(agent_index),
+                                    "--path",
+                                    str(episode_dir),
+                                    "--quiet",
+                                ]
+                            )
+                        except RuntimeError as exc:
+                            # Agent logs are useful diagnostics, but Kaggle may
+                            # deny this endpoint while still allowing metadata
+                            # and replays. Keep the report usable and avoid
+                            # repeating the same forbidden request for every
+                            # episode in the submission list.
+                            logs_available = False
+                            if not logs_warning_shown:
+                                print(
+                                    "warning: Kaggle agent logs are unavailable; "
+                                    f"continuing without logs ({exc})",
+                                    file=sys.stderr,
+                                )
+                                logs_warning_shown = True
+                            break
         submissions.append(load_remote_submission(submission, episodes, destination))
     return submissions
 

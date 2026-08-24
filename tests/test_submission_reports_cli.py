@@ -114,6 +114,8 @@ def test_remote_failure_returns_error_without_discarding_local_report(
 
 
 def test_remote_log_permission_failure_is_non_fatal(tmp_path, monkeypatch) -> None:
+    attempted_logs: list[list[str]] = []
+
     def fake_json(arguments: list[str]):
         if "submissions" in arguments:
             return [{"id": "submission-10", "status": "complete"}]
@@ -128,6 +130,7 @@ def test_remote_log_permission_failure_is_non_fatal(tmp_path, monkeypatch) -> No
                 encoding="utf-8",
             )
         else:
+            attempted_logs.append(arguments)
             raise RuntimeError("403 Forbidden: GetEpisodeAgentLogs")
 
     monkeypatch.setattr(updater, "_kaggle_json", fake_json)
@@ -146,3 +149,4 @@ def test_remote_log_permission_failure_is_non_fatal(tmp_path, monkeypatch) -> No
         == 0
     )
     assert (tmp_path / "reports" / "index.html").is_file()
+    assert len(attempted_logs) == 1
