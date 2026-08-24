@@ -468,6 +468,21 @@ def _replay_economic_metrics(
                 }
             daily_records[day]["money_end"] = money_our
 
+            # Parse action and market orders for our agent
+            action = rec_our.get("action")
+            if isinstance(action, dict):
+                commands = [
+                    action.get("farmer", ["PASS"]),
+                    *action.get("hands", []),
+                ]
+                for command in commands:
+                    if command and isinstance(command[0], str):
+                        daily_records[day]["action_counts"][command[0]] += 1
+                for order in action.get("market", []):
+                    if order and isinstance(order[0], str):
+                        qty = int(order[2]) if len(order) > 2 and isinstance(order[2], int) else 1
+                        daily_records[day]["market_orders"][order[0]] += qty
+
         if (
             opponent_index is not None
             and len(farms) > opponent_index
