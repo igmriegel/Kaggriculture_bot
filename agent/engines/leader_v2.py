@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from agent.core.contracts import Action
 from agent.core.state import NormalizedState, Tile
 from agent.domain.economics import projected_prices
 from agent.engines.competitive import CompetitiveEngine
+from agent.engines.cycle_memory import CycleMemory
 
 _PRODUCTS = {
     "WHEAT",
@@ -66,17 +68,34 @@ class LeaderV2Engine(CompetitiveEngine):
 
     def __init__(self, config: LeaderV2Config | None = None) -> None:
         self.v2_config = config or LeaderV2Config()
+        self.cycle_memory = CycleMemory()
+        self._last_assignments: list[dict[str, Any]] = []
+
+    def reset_cycle(self) -> None:
+        """Clear process-local continuity when the harness starts a game."""
+        self.cycle_memory.reset_for_episode()
 
     def act(self, observation: dict[str, Any]) -> dict[str, Any]:
         state = NormalizedState.from_observation(observation)
+        self.cycle_memory.begin(state)
         goals = self._goals(state)
         tasks = self._tasks(state, goals)
         commands = self._allocate(state, tasks)
+        market = self._build_market_orders(state, goals, tasks)
+        self.cycle_memory.record_action(state, self._last_assignments, market)
         return Action(
             farmer=commands[0],
             hands=commands[1:],
-            market=self._build_market_orders(state, goals, tasks),
+            market=market,
         ).model_dump()
+
+    def cycle_metrics(self) -> dict[str, Any]:
+        """Expose diagnostics to the harness without changing the action schema."""
+        return self.cycle_memory.cycle_metrics()
+
+    def finalize_cycle(self, observation: dict[str, Any]) -> None:
+        """Reconcile the final emitted intent when an episode ends immediately."""
+        self.cycle_memory.begin(NormalizedState.from_observation(observation))
 
     def _goals(self, state: NormalizedState) -> tuple[ProductionGoal, ...]:
         target_animals = self.v2_config.opening_animals if state.day < 5 else 8
@@ -163,8 +182,11 @@ class LeaderV2Engine(CompetitiveEngine):
             # A pickup is validated against the stock currently in the shed.
             # Requesting two units with a one-unit reserve previously invalidated
             # the whole turn, including otherwise legal market orders.
-            feed_quantity = min(2, available_wheat)
+            reserved_wheat = 0
             for index, point in enumerate(self._shed_tiles(state)[:feed_pickups]):
+                feed_quantity = min(2, max(0, available_wheat - reserved_wheat))
+                if not feed_quantity:
+                    break
                 tasks.append(
                     Task(
                         0,
@@ -174,6 +196,7 @@ class LeaderV2Engine(CompetitiveEngine):
                         ("wheat", index),
                     )
                 )
+                reserved_wheat += feed_quantity
 
         if not pending or state.day == 0:
             crops = ("WHEAT", "MELON") if state.day == 0 else (self._crop(state),)
@@ -199,8 +222,28 @@ class LeaderV2Engine(CompetitiveEngine):
             if inventory and any(item in _PRODUCTS for item in inventory):
                 point = state.units()[index]
                 if point in self._shed_tiles(state):
-                    tasks.append(Task(11, point, ["DROP"], reservation=("unit", index)))
-        return tasks
+                    preserve_feed = self._animal_count(state) > 0
+                    tasks.append(
+                        Task(
+                            11,
+                            point,
+                            ["DROP"],
+                            partial(_has_product_for_drop, preserve_feed=preserve_feed),
+                            ("unit", index),
+                        )
+                    )
+        return [
+            task
+            for task in tasks
+            if not self.cycle_memory.is_blocked(
+                state,
+                str(task.command[0]),
+                task.target,
+                task.command[1]
+                if len(task.command) > 1 and isinstance(task.command[1], str)
+                else None,
+            )
+        ]
 
     def _allocate(self, state: NormalizedState, tasks: list[Task]) -> list[list[Any]]:
         positions = state.units()
@@ -209,6 +252,7 @@ class LeaderV2Engine(CompetitiveEngine):
             for index in range(len(positions))
         ]
         commands: list[list[Any]] = [["PASS"] for _ in positions]
+        assignments: list[dict[str, Any]] = []
         free = set(range(len(positions)))
         reserved: set[tuple[str, object]] = set()
         for task in sorted(tasks, key=lambda item: item.priority):
@@ -224,9 +268,18 @@ class LeaderV2Engine(CompetitiveEngine):
                 commands[unit] = self._command_for(task, inventories[unit])
             else:
                 commands[unit] = [self._direction(positions[unit], task.target)]
+            assignments.append(
+                {
+                    "unit_index": unit,
+                    "target": task.target,
+                    "command": commands[unit],
+                    "planned_command": task.command,
+                }
+            )
             free.remove(unit)
             if task.reservation:
                 reserved.add(task.reservation)
+        self._last_assignments = assignments
         return commands
 
     @staticmethod
@@ -256,10 +309,16 @@ class LeaderV2Engine(CompetitiveEngine):
                     ["BUY_PRODUCT", "WHEAT", 4],
                 ]
         budget = self._budget(state, tasks)
+        crop = self._crop(state)
+        seed_goal = next(goal.quantity for goal in goals if goal.name == f"plant_{crop.lower()}")
+        seed_cost = max(0, seed_goal - state.seeds.get(crop, 0)) * _SEED_COST[crop]
+        self.cycle_memory.reserve_for(state, seed_cost=seed_cost)
         projected = projected_prices(
             state.market_inventory, state.shops, state.step, max(0, 720 - state.step)
         )
         orders = self._sales(state, projected)
+        # The reservation is recorded for diagnostics and hiring decisions;
+        # existing V2 liquidity behavior remains the execution budget.
         spending = max(0, state.money - budget.reserve)
         if self._closing(state):
             return orders[: self.v2_config.max_orders]
@@ -275,10 +334,10 @@ class LeaderV2Engine(CompetitiveEngine):
         shortfall = self._wheat_shortfall(state)
         if shortfall and spending >= budget.feed:
             quantity = min(shortfall, int(spending // max(1, state.prices.get("WHEAT", 25))))
+            quantity = min(quantity, self._market_stock(state, "WHEAT"))
             if quantity:
                 orders.append(["BUY_PRODUCT", "WHEAT", quantity])
                 spending -= quantity * int(state.prices.get("WHEAT", 25))
-        crop = self._crop(state)
         seed_goal = next(goal.quantity for goal in goals if goal.name == f"plant_{crop.lower()}")
         seed_needed = max(0, seed_goal - state.seeds.get(crop, 0))
         seed_spending = max(0, spending - self.v2_config.operating_cash_floor)
@@ -310,9 +369,24 @@ class LeaderV2Engine(CompetitiveEngine):
             state.day >= 6
             and len(state.unlocked_quadrants) < 3
             and spending >= land_cost + budget.feed
+            and not self._has_pending_chain(state)
         ):
             orders.append(["BUY_LAND"])
         return orders[: self.v2_config.max_orders]
+
+    def _has_pending_chain(self, state: NormalizedState) -> bool:
+        """Expansion waits until recovery, production and storage are settled."""
+        if any(
+            self._ripe(tile, state)
+            or (tile.animal and not tile.fed_today)
+            or (tile.animal and tile.fertilizer_available)
+            or (tile.kind == "PLANT" and not tile.watered_today)
+            for tile in state.tiles
+        ):
+            return True
+        if any(state.unit_inventories):
+            return True
+        return sum(state.shed.values()) >= state.shed_capacity - 8
 
     def _budget(self, state: NormalizedState, tasks: list[Task]) -> DailyBudget:
         wheat_price = int(state.prices.get("WHEAT", 25))
@@ -413,6 +487,13 @@ class LeaderV2Engine(CompetitiveEngine):
         )
         return max(0, self._animal_count(state) - owned)
 
+    @staticmethod
+    def _market_stock(state: NormalizedState, item: str) -> int:
+        """Use the official market stock when exposed; unknown means unbounded."""
+        if item not in state.market_inventory:
+            return 10**9
+        return max(0, state.market_inventory[item])
+
 
 def _empty_inventory(inventory: dict[str, int]) -> bool:
     return not inventory
@@ -424,3 +505,13 @@ def _has_wheat(inventory: dict[str, int]) -> bool:
 
 def _has_animal(inventory: dict[str, int]) -> bool:
     return any(inventory.get(animal, 0) for animal in _ANIMAL_COST)
+
+
+def _has_product(inventory: dict[str, int]) -> bool:
+    return any(inventory.get(product, 0) for product in _PRODUCTS)
+
+
+def _has_product_for_drop(inventory: dict[str, int], preserve_feed: bool) -> bool:
+    if preserve_feed and inventory.get("WHEAT", 0) > 0:
+        return any(inventory.get(product, 0) for product in _PRODUCTS - {"WHEAT"})
+    return _has_product(inventory)
