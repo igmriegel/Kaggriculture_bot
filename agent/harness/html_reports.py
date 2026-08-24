@@ -288,6 +288,8 @@ def episode_from_replay(
     opponent_score = _number(rewards[opponent_index]) if opponent_index is not None else None
     winner = _winner(score, opponent_score)
     status = _text((metadata or {}).get("status")) or ("complete" if steps else "unknown")
+    metrics = summarize_turns(evidence)
+    metrics["economic"] = _replay_economic_metrics(steps, agent_index, opponent_index)
     return ReportEpisode(
         episode_id=episode_id,
         score=score,
@@ -304,7 +306,7 @@ def episode_from_replay(
         opponent_action_counts=opponent_action_counts,
         our_market_orders=our_market_orders,
         opponent_market_orders=opponent_market_orders,
-        metrics=summarize_turns(evidence),
+        metrics=metrics,
     )
 
 
@@ -428,6 +430,50 @@ def _replay_snapshot(observation: Any) -> dict[str, Any]:
         "fertilizer_pending": sum(
             1 for tile in tiles if isinstance(tile, dict) and tile.get("fertilizer_available")
         ),
+    }
+
+
+def _replay_economic_metrics(
+    steps: list[Any], agent_index: int, opponent_index: int | None
+) -> dict[str, Any]:
+    daily_our: dict[int, float] = {}
+    daily_opp: dict[int, float] = {}
+    daily_records: dict[int, dict[str, Any]] = {}
+
+    for step in steps:
+        if not isinstance(step, list) or len(step) <= agent_index:
+            continue
+        rec_our = step[agent_index] if isinstance(step[agent_index], dict) else {}
+        obs = rec_our.get("observation", {})
+        if not isinstance(obs, dict):
+            continue
+        day = int(obs.get("day", 0))
+        farms = obs.get("farms", [])
+        if len(farms) > agent_index and isinstance(farms[agent_index], dict):
+            money_our = float(farms[agent_index].get("money", 0.0) or 0.0)
+            daily_our[day] = money_our
+            if day not in daily_records:
+                daily_records[day] = {
+                    "day": day,
+                    "money_start": money_our,
+                    "money_end": money_our,
+                    "market_orders": Counter(),
+                    "action_counts": Counter(),
+                }
+            daily_records[day]["money_end"] = money_our
+
+        if (
+            opponent_index is not None
+            and len(farms) > opponent_index
+            and isinstance(farms[opponent_index], dict)
+        ):
+            money_opp = float(farms[opponent_index].get("money", 0.0) or 0.0)
+            daily_opp[day] = money_opp
+
+    return {
+        "daily": [daily_records[d] for d in sorted(daily_records.keys())],
+        "daily_our_money": [daily_our.get(d, 0.0) for d in range(31) if d in daily_our],
+        "daily_opp_money": [daily_opp.get(d, 0.0) for d in range(31) if d in daily_opp],
     }
 
 
@@ -698,9 +744,16 @@ def _score_evolution_chart_html(episode: ReportEpisode) -> str:
     else:
         return ""
 
-    # Opponent points (interpolated or from daily if present)
-    opp_final = float(episode.opponent_score) if episode.opponent_score is not None else 3000.0
-    opp_points = [(0, 3000.0), (30, opp_final)]
+    # Opponent points (from replay series if present, or interpolated)
+    opp_series = economic.get("daily_opp_money", []) if isinstance(economic, dict) else []
+    opp_points: list[tuple[int, float]] = []
+    if opp_series:
+        for day, val in enumerate(opp_series):
+            opp_points.append((day, float(val)))
+    elif episode.opponent_score is not None:
+        opp_points = [(0, 3000.0), (30, float(episode.opponent_score))]
+    else:
+        opp_points = [(0, 3000.0), (30, 3000.0)]
 
     # Compute bounds
     all_vals = [p[1] for p in our_points] + [p[1] for p in opp_points]
@@ -724,7 +777,10 @@ def _score_evolution_chart_html(episode: ReportEpisode) -> str:
         f"{'M' if i == 0 else 'L'} {scale_x(p[0]):.1f} {scale_y(p[1]):.1f}"
         for i, p in enumerate(our_points)
     )
-    opp_d = f"M {scale_x(0):.1f} {scale_y(3000):.1f} L {scale_x(30):.1f} {scale_y(opp_final):.1f}"
+    opp_d = " ".join(
+        f"{'M' if i == 0 else 'L'} {scale_x(p[0]):.1f} {scale_y(p[1]):.1f}"
+        for i, p in enumerate(opp_points)
+    )
 
     # Gridlines and Y-axis labels
     grid_lines = []
@@ -761,14 +817,16 @@ def _score_evolution_chart_html(episode: ReportEpisode) -> str:
                 f'font-size="11" font-weight="800" text-anchor="middle">${p[1]:,.0f}</text>'
             )
 
-    # Final opp marker
-    opp_cx, opp_cy = scale_x(30), scale_y(opp_final)
-    circles.append(
-        f'<circle cx="{opp_cx:.1f}" cy="{opp_cy:.1f}" r="5" fill="#dc2626" '
-        'stroke="#ffffff" stroke-width="2"/>'
-        f'<text x="{opp_cx:.1f}" y="{opp_cy - 10:.1f}" fill="#991b1b" '
-        f'font-size="11" font-weight="800" text-anchor="middle">${opp_final:,.0f}</text>'
-    )
+    # Opponent markers
+    for p in opp_points:
+        if p[0] in {0, 30} or p == opp_points[-1]:
+            opp_cx, opp_cy = scale_x(p[0]), scale_y(p[1])
+            circles.append(
+                f'<circle cx="{opp_cx:.1f}" cy="{opp_cy:.1f}" r="5" fill="#dc2626" '
+                'stroke="#ffffff" stroke-width="2"/>'
+                f'<text x="{opp_cx:.1f}" y="{opp_cy + 18:.1f}" fill="#991b1b" '
+                f'font-size="11" font-weight="800" text-anchor="middle">${p[1]:,.0f}</text>'
+            )
 
     svg_content = (
         f'<svg viewBox="0 0 {width} {height}" style="width:100%; height:auto; display:block;" '
