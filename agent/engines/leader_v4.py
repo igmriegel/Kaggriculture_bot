@@ -53,7 +53,10 @@ class LeaderV4Config(LeaderV2Config):
 
 
 class LeaderV4Engine(LeaderV2Engine):
-    """Dynamic, adaptive engine that optimizes crop and livestock portfolios based on market signals."""
+    """Dynamic, adaptive engine that optimizes crop and livestock portfolios.
+
+    Selects actions based on market signals and expected value without hardcoding.
+    """
 
     def __init__(self, config: LeaderV4Config | None = None) -> None:
         super().__init__(config or LeaderV4Config())
@@ -84,7 +87,9 @@ class LeaderV4Engine(LeaderV2Engine):
 
         # 1. Livestock goals (Cow & Sheep)
         quadrants = len(state.unlocked_quadrants)
-        max_pastures = 4 if quadrants == 1 else (12 if quadrants == 2 else self.v4_config.max_animals)
+        max_pastures = (
+            4 if quadrants == 1 else (12 if quadrants == 2 else self.v4_config.max_animals)
+        )
         if state.day >= 22:
             target_animals = self._animal_count(state)
         else:
@@ -176,7 +181,13 @@ class LeaderV4Engine(LeaderV2Engine):
                     tasks.append(Task(2, point, ["FEED"], _has_wheat, ("tile", point)))
                 if tile.fertilizer_available:
                     tasks.append(
-                        Task(4, point, ["COLLECT_FERTILIZER"], _can_collect_or_harvest, ("tile", point))
+                        Task(
+                            4,
+                            point,
+                            ["COLLECT_FERTILIZER"],
+                            _can_collect_or_harvest,
+                            ("tile", point),
+                        )
                     )
                 elif not tile.cared_today:
                     tasks.append(Task(3, point, ["CARE"], _any_inventory, ("tile", point)))
@@ -203,9 +214,7 @@ class LeaderV4Engine(LeaderV2Engine):
         )[:build_count]:
             point = (tile.x, tile.y)
             tasks.append(
-                Task(
-                    1 if opening else 5, point, ["BUILD_PASTURE"], _any_inventory, ("tile", point)
-                )
+                Task(1 if opening else 5, point, ["BUILD_PASTURE"], _any_inventory, ("tile", point))
             )
 
         for tile in open_pastures:
@@ -293,7 +302,9 @@ class LeaderV4Engine(LeaderV2Engine):
                 state,
                 str(task.command[0]),
                 task.target,
-                task.command[1] if len(task.command) > 1 and isinstance(task.command[1], str) else None,
+                task.command[1]
+                if len(task.command) > 1 and isinstance(task.command[1], str)
+                else None,
             )
         ]
 
@@ -335,7 +346,9 @@ class LeaderV4Engine(LeaderV2Engine):
         wheat_price = max(1, int(state.prices.get("WHEAT", 25)))
         if feed_needed > 0 and (state.hour in {0, 1} or state.shed.get("WHEAT", 0) == 0):
             if spending >= wheat_price and len(orders) < self.v4_config.max_orders:
-                qty = min(feed_needed, spending // wheat_price, self._market_stock(state, "WHEAT"), 6)
+                qty = min(
+                    feed_needed, spending // wheat_price, self._market_stock(state, "WHEAT"), 6
+                )
                 if qty > 0:
                     orders.append(["BUY_PRODUCT", "WHEAT", int(qty)])
                     spending -= qty * wheat_price
@@ -379,8 +392,14 @@ class LeaderV4Engine(LeaderV2Engine):
             prospective = len(state.hand_positions)
 
             hires_this_turn = 0
-            while current_workers < target_workers and len(orders) < self.v4_config.max_orders and hires_this_turn < 6:
-                hire_cost = self._hire_cost(state.hires_today + prospective - len(state.hand_positions))
+            while (
+                current_workers < target_workers
+                and len(orders) < self.v4_config.max_orders
+                and hires_this_turn < 6
+            ):
+                hire_cost = self._hire_cost(
+                    state.hires_today + prospective - len(state.hand_positions)
+                )
                 if spending < hire_cost + (wheat_price * 2):
                     break
                 orders.append(["HIRE"])
@@ -408,7 +427,9 @@ class LeaderV4Engine(LeaderV2Engine):
     ) -> list[list[Any]]:
         orders: list[list[Any]] = []
         is_closing = self._closing(state)
-        capacity_pressure = sum(state.shed.values()) >= (state.shed_capacity - self.v4_config.shed_safety_buffer)
+        capacity_pressure = sum(state.shed.values()) >= (
+            state.shed_capacity - self.v4_config.shed_safety_buffer
+        )
 
         for item, amount in sorted(state.shed.items()):
             if amount <= 0 or item not in _PRODUCTS:
@@ -424,7 +445,12 @@ class LeaderV4Engine(LeaderV2Engine):
                 continue
 
             # Strategic cashouts
-            if is_closing or capacity_pressure or item == "MELON" or (item in {"MILK", "WOOL", "FERTILIZER"} and amount >= 2):
+            if (
+                is_closing
+                or capacity_pressure
+                or item == "MELON"
+                or (item in {"MILK", "WOOL", "FERTILIZER"} and amount >= 2)
+            ):
                 orders.append(["SELL", item, sellable])
                 continue
 
@@ -452,8 +478,12 @@ class LeaderV4Engine(LeaderV2Engine):
         return max(0, animals - owned_wheat)
 
     def _animal_chain_ready(self, state: NormalizedState) -> bool:
-        unoccupied_pastures = sum(1 for t in state.tiles if t.kind == "PASTURE" and t.animal is None)
-        return unoccupied_pastures > self._pending_animals(state) and sum(state.shed.values()) < (state.shed_capacity - 3)
+        unoccupied_pastures = sum(
+            1 for t in state.tiles if t.kind == "PASTURE" and t.animal is None
+        )
+        return unoccupied_pastures > self._pending_animals(state) and sum(state.shed.values()) < (
+            state.shed_capacity - 3
+        )
 
     def _has_pending_chain(self, state: NormalizedState) -> bool:
         if any(

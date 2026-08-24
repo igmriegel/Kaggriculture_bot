@@ -1,4 +1,4 @@
-"""Normalize local/Kaggle evidence and render deterministic HTML reports."""
+"""Normalize local/Kaggle evidence and render deterministic HTML reports with rich KPIs."""
 
 from __future__ import annotations
 
@@ -168,7 +168,18 @@ def episode_from_local(data: Any, episode_root: Path) -> ReportEpisode | None:
         return None
     episode_id = _text(data.get("episode_id")) or episode_root.name
     result = data.get("result") if isinstance(data.get("result"), dict) else {}
+    raw_result = data.get("raw_result") if isinstance(data.get("raw_result"), dict) else {}
+    rewards = result.get("rewards") or raw_result.get("rewards")
     score = _number(_first_value(result, "money", "score", "reward"))
+    opponent_score = None
+    if isinstance(rewards, list) and len(rewards) > 1:
+        if score is None:
+            score = _number(rewards[0])
+        opponent_score = _number(rewards[1])
+
+    our_agent_name = _text(data.get("agent")) or "Our agent"
+    opponent_agent_name = _text(data.get("opponent")) or "Opponent"
+
     moves = _local_moves(data, episode_root)
     errors: list[str] = []
     if data.get("errors"):
@@ -178,16 +189,41 @@ def episode_from_local(data: Any, episode_root: Path) -> ReportEpisode | None:
     for move in moves:
         if move.error:
             errors.append(move.error)
+
+    metrics = data.get("metrics") if isinstance(data.get("metrics"), dict) else {}
+    action_counts_raw = metrics.get("action_counts", {})
+    our_action_counts = (
+        tuple(sorted(action_counts_raw.items(), key=lambda x: -x[1]))
+        if isinstance(action_counts_raw, dict)
+        else ()
+    )
+    our_market_orders = sum(
+        count
+        for name, count in our_action_counts
+        if name in {"BUY_SEED", "BUY_ANIMAL", "BUY_PRODUCT", "SELL", "HIRE", "BUY_LAND"}
+    )
+
+    winner = (
+        _winner(score, opponent_score)
+        if opponent_score is not None
+        else _text(result.get("winner"))
+    )
     return ReportEpisode(
         episode_id=episode_id,
         score=score,
-        opponent_score=None,
+        opponent_score=opponent_score,
         status=_text(data.get("status")) or "unknown",
-        winner=_text(result.get("winner")),
+        winner=winner,
         turns=int(data.get("turns") or len(moves)),
         errors=tuple(dict.fromkeys(errors)),
         moves=tuple(moves),
         source=str(episode_root / "episode.json"),
+        our_agent_name=our_agent_name,
+        opponent_agent_name=opponent_agent_name,
+        our_action_counts=our_action_counts,
+        opponent_action_counts=(),
+        our_market_orders=our_market_orders,
+        opponent_market_orders=0,
         metrics=_local_metrics(data, moves),
     )
 
@@ -334,6 +370,10 @@ def _local_metrics(data: dict[str, Any], moves: list[ReportMove]) -> dict[str, A
             result = dict(behavior)
             if isinstance(raw.get("cycle"), dict):
                 result["cycle"] = raw["cycle"]
+            if isinstance(raw.get("economic"), dict):
+                result["economic"] = raw["economic"]
+            if isinstance(raw.get("action_counts"), dict):
+                result["action_counts"] = raw["action_counts"]
             return result
         return raw
     return summarize_turns(
@@ -404,22 +444,58 @@ def _submission_html(submission: ReportSubmission) -> str:
     ]
     decided = counts["submission"] + counts["opponent"] + counts["tie"]
     win_rate = counts["submission"] / decided * 100 if decided else None
+    our_avg = _average(scored, "score")
+    opp_avg = _average(opponent_scored, "opponent_score")
+    margin_avg = (our_avg - opp_avg) if (our_avg is not None and opp_avg is not None) else None
+
+    # Calculate average idle % across episodes
+    raw_idle_pcts: list[float] = [
+        float(v)
+        for ep in counted_episodes
+        if (v := _metric_percent(ep.metrics, "idle_turn_percentage")) is not None
+    ]
+    avg_idle_pct = sum(raw_idle_pcts) / len(raw_idle_pcts) if raw_idle_pcts else 0.0
+
     rows = []
     for episode in episodes:
         href = f"episodes/{_slug(episode.episode_id)}.html"
         excluded = _is_excluded_episode(submission, episode)
         result_class = "self-play" if excluded else _result_class(episode.winner)
         result_label = "SELF-PLAY (excluded)" if excluded else _winner_label(episode.winner)
+        ep_margin = (
+            episode.score - episode.opponent_score
+            if episode.score is not None and episode.opponent_score is not None
+            else None
+        )
+        margin_style = (
+            "color:#198754;font-weight:700"
+            if ep_margin and ep_margin > 0
+            else ("color:#dc3545;font-weight:700" if ep_margin and ep_margin < 0 else "")
+        )
+        margin_text = (
+            f"+{ep_margin:,.0f}"
+            if ep_margin and ep_margin > 0
+            else (f"{ep_margin:,.0f}" if ep_margin is not None else "-")
+        )
+
+        ep_idle = _metric_percent(episode.metrics, "idle_turn_percentage")
+
         rows.append(
             f'<tr class="{result_class}">'
-            f'<td><a href="{escape(href)}">{escape(episode.episode_id)}</a></td>'
-            f"<td>{escape(_display(episode.score))}</td>"
+            f'<td><a href="{escape(href)}"><strong>{escape(episode.episode_id)}</strong></a></td>'
+            f"<td>{escape(episode.opponent_agent_name or '-')}</td>"
+            f"<td><strong>{escape(_display(episode.score))}</strong></td>"
             f"<td>{escape(_display(episode.opponent_score))}</td>"
+            f'<td style="{margin_style}">{margin_text}</td>'
             f'<td><span class="result-badge {result_class}">{escape(result_label)}</span></td>'
             f"<td>{escape(episode.status)}</td>"
-            f"<td>{episode.turns}</td><td>{len(episode.errors)}</td></tr>"
+            f"<td>{episode.turns}</td>"
+            f"<td>{escape(_percent(ep_idle))}</td>"
+            f"<td>{episode.our_market_orders} / {episode.opponent_market_orders}</td>"
+            f"<td>{len(episode.errors)}</td></tr>"
         )
-    episode_rows = "".join(rows) or '<tr><td colspan="7">No episodes found</td></tr>'
+    episode_rows = "".join(rows) or '<tr><td colspan="11">No episodes found</td></tr>'
+
     summary = (
         '<section class="summary-grid" aria-label="Submission summary">'
         f'<div class="summary-card ours"><span>Our wins</span>'
@@ -433,22 +509,49 @@ def _submission_html(submission: ReportSubmission) -> str:
         f"<strong>{escape(_percent(win_rate))}</strong></div>"
         "</section>"
     )
+
+    margin_card_class = (
+        "ours"
+        if margin_avg and margin_avg > 0
+        else ("opponent" if margin_avg and margin_avg < 0 else "neutral")
+    )
+    kpi_banner = (
+        '<section class="kpi-grid" aria-label="Strategic KPI Overview">'
+        f'<div class="kpi-card ours"><span>Our Avg Score</span>'
+        f"<strong>${_display(our_avg)}</strong>"
+        f"<small>Opponent avg: ${_display(opp_avg)}</small></div>"
+        f'<div class="kpi-card {margin_card_class}">'
+        "<span>Avg Score Margin</span>"
+        f"<strong>{'+' if margin_avg and margin_avg > 0 else ''}{_display(margin_avg)}</strong>"
+        f"<small>Decided games: {decided}</small></div>"
+        f'<div class="kpi-card neutral"><span>Avg Idle Turns</span>'
+        f"<strong>{avg_idle_pct:.1f}%</strong>"
+        f"<small>Field efficiency: {100 - avg_idle_pct:.1f}%</small></div>"
+        f'<div class="kpi-card neutral"><span>Total Matches</span>'
+        f"<strong>{len(episodes)}</strong>"
+        f"<small>{len(submission.excluded_episode_ids)} excluded self-play</small></div>"
+        "</section>"
+    )
+
     return _page(
         f"Submission {submission.submission_id}",
-        f'<p><a href="../../index.html">All submissions</a></p>'
-        f"<h1>Submission {escape(submission.submission_id)}</h1>"
-        f"<p>{escape(submission.description or '')}</p>"
-        f"<p>Status: <strong>{escape(submission.status)}</strong>"
-        f" · submitted: {escape(submission.submitted_at or '-')}</p>"
+        f'<p><a href="../../index.html">← All submissions</a></p>'
+        f"<h1>Submission: {escape(submission.submission_id)}</h1>"
+        f"<p class='subtitle'>{escape(submission.description or '')}</p>"
+        f"<p>Status: <strong class='status-pill'>{escape(submission.status)}</strong>"
+        f" · Submitted: {escape(submission.submitted_at or '-')}</p>"
         f"{_excluded_note(submission)}"
         f"{summary}"
         f'<p class="record"><strong>Record (our wins–ties–opponent wins):</strong> '
         f"{counts['submission']}–{counts['tie']}–{counts['opponent']} "
-        f"· our average: {_display(_average(scored, 'score'))} "
-        f"· opponent average: {_display(_average(opponent_scored, 'opponent_score'))}</p>"
+        f"· our average: {_display(our_avg)} "
+        f"· opponent average: {_display(opp_avg)}</p>"
+        f"{kpi_banner}"
         f"{_submission_behavior_html(counted_episodes)}"
-        "<table><thead><tr><th>Episode</th><th>Our submission</th><th>Opponent</th>"
-        "<th>Result</th><th>Status</th><th>Turns</th><th>Errors</th></tr></thead>"
+        "<h2>Match History</h2>"
+        "<table><thead><tr><th>Episode</th><th>Opponent</th><th>Our submission</th>"
+        "<th>Opponent score</th><th>Margin</th><th>Result</th><th>Status</th>"
+        "<th>Turns</th><th>Idle %</th><th>Market Orders (Us/Opp)</th><th>Errors</th></tr></thead>"
         f"<tbody>{episode_rows}</tbody></table>",
         css_href="../../assets/style.css",
     )
@@ -461,7 +564,9 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
         moves.append(
             "<tr>"
             f"<td>{move.turn}</td><td><pre>{escape(_json_text(move.action))}</pre></td>"
-            f"<td>{escape(move.action_class)}</td><td>{escape(move.error or '-')}</td></tr>"
+            f"<td><span class='badge-action {escape(move.action_class)}'>"
+            f"{escape(move.action_class)}</span></td>"
+            f"<td>{escape(move.error or '-')}</td></tr>"
         )
     move_rows = "".join(moves) or '<tr><td colspan="4">No moves recorded</td></tr>'
     error_rows = errors or "<li>None recorded</li>"
@@ -473,21 +578,62 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
         if episode.score is not None and episode.opponent_score is not None
         else None
     )
+    margin_text = (
+        f"+{margin:,.0f}"
+        if margin and margin > 0
+        else (f"{margin:,.0f}" if margin is not None else "-")
+    )
+
     action_summary = _action_summary_html(episode)
+    daily_table = _daily_economic_table_html(episode)
+
+    # Activity Metrics Breakdown
+    counts = dict(episode.our_action_counts)
+    water_count = (
+        counts.get("farmer: WATER", 0) + counts.get("hands: WATER", 0) + counts.get("WATER", 0)
+    )
+    plant_count = (
+        counts.get("farmer: PLANT", 0) + counts.get("hands: PLANT", 0) + counts.get("PLANT", 0)
+    )
+    harvest_count = (
+        counts.get("farmer: HARVEST", 0)
+        + counts.get("hands: HARVEST", 0)
+        + counts.get("HARVEST", 0)
+    )
+    feed_count = (
+        counts.get("farmer: FEED", 0) + counts.get("hands: FEED", 0) + counts.get("FEED", 0)
+    )
+    care_count = (
+        counts.get("farmer: CARE", 0) + counts.get("hands: CARE", 0) + counts.get("CARE", 0)
+    )
+    fertilizer_count = (
+        counts.get("farmer: COLLECT_FERTILIZER", 0)
+        + counts.get("hands: COLLECT_FERTILIZER", 0)
+        + counts.get("COLLECT_FERTILIZER", 0)
+    )
+    hire_count = counts.get("market: HIRE", 0) + counts.get("HIRE", 0)
+    sell_count = counts.get("market: SELL", 0) + counts.get("SELL", 0)
+
+    idle_pct_str = escape(_percent(_metric_percent(episode.metrics, "idle_turn_percentage")))
+    streak_val = _metric(episode.metrics, "longest_pass_streak")
+
     body = (
-        f'<p><a href="../index.html">Back to submission</a></p>'
+        f'<p><a href="../index.html">← Back to submission</a></p>'
         f"<h1>Episode {escape(episode.episode_id)}</h1>"
         f"<p>Submission: <strong>{escape(submission.submission_id)}</strong>"
-        f" · status: <strong>{escape(episode.status)}</strong></p>"
+        f" · Status: <strong>{escape(episode.status)}</strong></p>"
         f'<section class="scoreboard {result_class}" aria-label="Episode score comparison">'
-        f'<div class="score-card ours"><span>Our submission</span>'
-        f"<strong>{escape(_display(episode.score))}</strong></div>"
+        f'<div class="score-card ours">'
+        f"<span>Our submission ({escape(episode.our_agent_name or '-')})</span>"
+        f"<strong>${escape(_display(episode.score))}</strong></div>"
         '<div class="versus" aria-hidden="true">vs</div>'
-        f'<div class="score-card opponent"><span>Opponent</span>'
-        f"<strong>{escape(_display(episode.opponent_score))}</strong></div>"
+        f'<div class="score-card opponent">'
+        f"<span>Opponent ({escape(episode.opponent_agent_name or '-')})</span>"
+        f"<strong>${escape(_display(episode.opponent_score))}</strong></div>"
         f'</section><p class="result-line"><strong>Result:</strong> '
         f'<span class="result-badge {result_class}">{escape(result_label)}</span>'
-        f" · turns: {episode.turns}</p>"
+        f" · Margin: <strong>{margin_text}</strong>"
+        f" · Turns: <strong>{episode.turns}</strong></p>"
         "<h2>Game summary</h2>"
         '<section class="summary-grid replay-summary" aria-label="Game summary">'
         f'<div class="summary-card ours"><span>Our agent</span>'
@@ -495,23 +641,34 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
         f'<div class="summary-card opponent"><span>Opponent</span>'
         f'<strong class="summary-name">{escape(episode.opponent_agent_name or "-")}</strong></div>'
         f'<div class="summary-card neutral"><span>Score margin</span>'
-        f"<strong>{escape(_display(margin))}</strong></div>"
+        f"<strong>{margin_text}</strong></div>"
         f'<div class="summary-card ours"><span>Our market orders</span>'
         f"<strong>{episode.our_market_orders}</strong></div>"
         f'<div class="summary-card opponent"><span>Opponent market orders</span>'
         f"<strong>{episode.opponent_market_orders}</strong></div>"
         f'<div class="summary-card neutral"><span>Our errors</span>'
         f"<strong>{len(episode.errors)}</strong></div>"
-        f'<div class="summary-card neutral"><span>Idle turns</span>'
-        f"<strong>{escape(_percent(_metric_percent(episode.metrics, 'idle_turn_percentage')))}"
-        "</strong></div>"
-        f'<div class="summary-card neutral"><span>Longest PASS streak</span>'
-        f"<strong>{_metric(episode.metrics, 'longest_pass_streak')}</strong></div>"
-        f'<div class="summary-card opponent"><span>Fallbacks inferred</span>'
-        f"<strong>{_metric(episode.metrics, 'fallbacks_inferred')}</strong></div>"
-        f'<div class="summary-card opponent"><span>Lost actions</span>'
-        f"<strong>{_metric(episode.metrics, 'lost_actions')}</strong></div>"
         "</section>"
+        "<h2>Operational & Strategic KPIs</h2>"
+        '<section class="kpi-grid" aria-label="Strategic KPIs">'
+        f'<div class="kpi-card highlight-ours"><span>Idle Turns %</span>'
+        f"<strong>{idle_pct_str}</strong>"
+        f"<small>Longest PASS streak: {streak_val}</small></div>"
+        f'<div class="kpi-card ours"><span>Field Operations</span>'
+        f"<strong>{water_count + harvest_count + plant_count} ops</strong>"
+        f"<small>Water: {water_count} · Harv: {harvest_count} · Plant: {plant_count}</small></div>"
+        f'<div class="kpi-card ours"><span>Livestock Care</span>'
+        f"<strong>{feed_count + care_count + fertilizer_count} ops</strong>"
+        f"<small>Feed: {feed_count} · Care: {care_count} · Poop: {fertilizer_count}</small></div>"
+        f'<div class="kpi-card neutral"><span>Market Volume</span>'
+        f"<strong>{episode.our_market_orders} orders</strong>"
+        f"<small>Hires: {hire_count} · Sells: {sell_count}</small></div>"
+        f'<div class="kpi-card {"neutral" if len(episode.errors) == 0 else "opponent"}">'
+        "<span>Stability & Errors</span>"
+        f"<strong>{len(episode.errors)} errors</strong>"
+        f"<small>Fallbacks: {_metric(episode.metrics, 'fallbacks_inferred')}</small></div>"
+        "</section>"
+        f"{daily_table}"
         f"{action_summary}"
         f"{_behavior_details_html(episode)}"
         f"{_cycle_details_html(episode)}"
@@ -523,7 +680,77 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
     return _page(f"Episode {episode.episode_id}", body, css_href="../../../assets/style.css")
 
 
+def _daily_economic_table_html(episode: ReportEpisode) -> str:
+    economic = _metric(episode.metrics, "economic", {})
+    daily = economic.get("daily", []) if isinstance(economic, dict) else []
+    if not daily:
+        return ""
+    rows = []
+    for d in daily:
+        day = d.get("day", 0)
+        start = d.get("money_start", 0)
+        end = d.get("money_end", 0)
+        delta = end - start
+        delta_class = "margin-positive" if delta > 0 else ("margin-negative" if delta < 0 else "")
+        delta_text = (
+            f"+${delta:,.0f}" if delta > 0 else (f"-${abs(delta):,.0f}" if delta < 0 else "$0")
+        )
+        mkt = d.get("market_orders", {})
+        act = d.get("action_counts", {})
+        hires = mkt.get("HIRE", 0)
+        sells = mkt.get("SELL", 0)
+        waters = act.get("WATER", 0)
+        harvests = act.get("HARVEST", 0)
+        plants = act.get("PLANT", 0)
+        rows.append(
+            f"<tr><td>Day {day:02d}</td>"
+            f"<td>${start:,.0f}</td><td>${end:,.0f}</td>"
+            f'<td class="{delta_class}"><strong>{delta_text}</strong></td>'
+            f"<td>{hires}</td><td>{waters}</td><td>{harvests}</td><td>{plants}</td>"
+            f"<td>{sells}</td></tr>"
+        )
+    table_rows = "".join(rows)
+    return (
+        '<section class="behavior-details" aria-label="Daily Economic Evolution">'
+        "<h2>Daily Farm & Financial Evolution (30 Days)</h2>"
+        "<div style='overflow-x:auto;'><table><thead><tr>"
+        "<th>Day</th><th>Start Cash</th><th>End Cash</th><th>Delta ($)</th>"
+        "<th>Hires</th><th>Waters</th><th>Harvests</th><th>Plants</th><th>Sells</th>"
+        "</tr></thead>"
+        f"<tbody>{table_rows}</tbody></table></div></section>"
+    )
+
+
 def _index_html(submissions: list[ReportSubmission]) -> str:
+    all_episodes = [ep for s in submissions for ep in _counted_episodes(s)]
+    total_episodes = len(all_episodes)
+    global_counts = _outcome_counts(all_episodes)
+    decided = global_counts["submission"] + global_counts["opponent"] + global_counts["tie"]
+    global_win_rate = global_counts["submission"] / decided * 100 if decided else 0.0
+
+    all_scores = [ep.score for ep in all_episodes if ep.score is not None]
+    all_opp_scores = [ep.opponent_score for ep in all_episodes if ep.opponent_score is not None]
+    global_our_avg = sum(all_scores) / len(all_scores) if all_scores else None
+    global_opp_avg = sum(all_opp_scores) / len(all_opp_scores) if all_opp_scores else None
+
+    overview = (
+        '<section class="kpi-grid" aria-label="Global Submission Overview">'
+        f'<div class="kpi-card highlight-ours"><span>Total Submissions</span>'
+        f"<strong>{len(submissions)}</strong>"
+        f"<small>{total_episodes} matches evaluated</small></div>"
+        f'<div class="kpi-card ours"><span>Global Record (W–T–L)</span>'
+        f"<strong>{global_counts['submission']}–{global_counts['tie']}–"
+        f"{global_counts['opponent']}</strong>"
+        f"<small>Win rate: {global_win_rate:.1f}%</small></div>"
+        f'<div class="kpi-card ours"><span>Global Avg Score</span>'
+        f"<strong>${_display(global_our_avg)}</strong>"
+        f"<small>Opponents: ${_display(global_opp_avg)}</small></div>"
+        f'<div class="kpi-card neutral"><span>Total Matches</span>'
+        f"<strong>{total_episodes}</strong>"
+        f"<small>Continuous improvement pipeline</small></div>"
+        "</section>"
+    )
+
     rows = []
     for submission in submissions:
         episodes = submission.episodes
@@ -535,28 +762,63 @@ def _index_html(submissions: list[ReportSubmission]) -> str:
             if episode.opponent_score is not None
         ]
         counts = _outcome_counts(counted_episodes)
+        sub_decided = counts["submission"] + counts["opponent"] + counts["tie"]
+        sub_win_rate = counts["submission"] / sub_decided * 100 if sub_decided else 0.0
         our_average = sum(scores) / len(scores) if scores else None
         opponent_average = sum(opponent_scores) / len(opponent_scores) if opponent_scores else None
+        margin_avg = (
+            (our_average - opponent_average)
+            if (our_average is not None and opponent_average is not None)
+            else None
+        )
+        margin_style = (
+            "color:#198754;font-weight:700"
+            if margin_avg and margin_avg > 0
+            else ("color:#dc3545;font-weight:700" if margin_avg and margin_avg < 0 else "")
+        )
+        margin_text = (
+            f"+${margin_avg:,.0f}"
+            if margin_avg and margin_avg > 0
+            else (f"-${abs(margin_avg):,.0f}" if margin_avg and margin_avg < 0 else "-")
+        )
+
+        raw_sub_idle: list[float] = [
+            float(v)
+            for ep in counted_episodes
+            if (v := _metric_percent(ep.metrics, "idle_turn_percentage")) is not None
+        ]
+        avg_idle_pct = sum(raw_sub_idle) / len(raw_sub_idle) if raw_sub_idle else 0.0
+
         errors = sum(len(episode.errors) for episode in episodes)
         href = f"submissions/{_slug(submission.submission_id)}/index.html"
+
+        sub_id_escaped = escape(submission.submission_id)
+        rec_str = f"{counts['submission']}–{counts['tie']}–{counts['opponent']}"
+        win_pct_str = f"({sub_win_rate:.0f}%)"
         rows.append(
             "<tr>"
-            f'<td><a href="{escape(href)}">{escape(submission.submission_id)}</a></td>'
-            f"<td>{escape(submission.status)}</td><td>{len(episodes)}</td>"
-            f'<td><span class="record-badge">'
-            f"{counts['submission']}–{counts['tie']}–{counts['opponent']}"
-            "</span></td>"
-            f"<td>{escape(_display(our_average))}</td>"
-            f"<td>{escape(_display(opponent_average))}</td>"
+            f'<td><a href="{escape(href)}"><strong>{sub_id_escaped}</strong></a></td>'
+            f"<td><span class='status-pill'>{escape(submission.status)}</span></td>"
+            f"<td>{len(episodes)}</td>"
+            f'<td><span class="record-badge">{rec_str}</span>'
+            f'<small style="margin-left:0.35rem;font-weight:600;">{win_pct_str}</small></td>'
+            f"<td><strong>${escape(_display(our_average))}</strong></td>"
+            f"<td>${escape(_display(opponent_average))}</td>"
+            f'<td style="{margin_style}">{margin_text}</td>'
+            f"<td>{avg_idle_pct:.1f}%</td>"
             f"<td>{errors}</td></tr>"
         )
-    submission_rows = "".join(rows) or '<tr><td colspan="7">No submissions found</td></tr>'
+    submission_rows = "".join(rows) or '<tr><td colspan="9">No submissions found</td></tr>'
+    subtitle = "Unified benchmark and Kaggle replay analytics for agent iterations."
     return _page(
-        "Submission reports",
-        "<h1>Submission reports</h1>"
-        "<p>Generated from cached Kaggle and local harness evidence.</p>"
+        "Kaggriculture Submission Reports & Analytics",
+        "<h1>🌾 Kaggriculture Continuous Improvement Dashboard</h1>"
+        f"<p class='subtitle'>{subtitle}</p>"
+        f"{overview}"
+        "<h2>All Submissions & Benchmarks</h2>"
         "<table><thead><tr><th>Submission</th><th>Status</th><th>Episodes</th>"
-        "<th>Record W–T–L</th><th>Our avg</th><th>Opponent avg</th><th>Errors</th></tr></thead>"
+        "<th>Record (W–T–L)</th><th>Our Avg</th><th>Opponent Avg</th>"
+        "<th>Avg Margin</th><th>Idle %</th><th>Errors</th></tr></thead>"
         f"<tbody>{submission_rows}</tbody></table>",
         css_href="assets/style.css",
     )
@@ -613,7 +875,11 @@ def _winner_label(winner: str | None) -> str:
 
 
 def _average(episodes: Iterable[ReportEpisode], field_name: str) -> float | None:
-    values = [getattr(episode, field_name) for episode in episodes]
+    values = [
+        getattr(episode, field_name)
+        for episode in episodes
+        if getattr(episode, field_name) is not None
+    ]
     return sum(values) / len(values) if values else None
 
 
@@ -624,8 +890,8 @@ def _percent(value: float | None) -> str:
 def _action_summary_html(episode: ReportEpisode) -> str:
     return (
         '<section class="action-grid" aria-label="Action summary">'
-        f"{_action_table('Our actions', episode.our_action_counts, 'ours')}"
-        f"{_action_table('Opponent actions', episode.opponent_action_counts, 'opponent')}"
+        f"{_action_table('Our Actions Breakdown', episode.our_action_counts, 'ours')}"
+        f"{_action_table('Opponent Actions Breakdown', episode.opponent_action_counts, 'opponent')}"
         "</section>"
     )
 
@@ -643,14 +909,19 @@ def _submission_behavior_html(episodes: list[ReportEpisode]) -> str:
     longest = max((_metric(item, "longest_pass_streak") for item in metrics), default=0)
     idle_percent = idle / total * 100 if total else None
     return (
-        '<section class="summary-grid behavior-summary" aria-label="Idle and fallback summary">'
-        f'<div class="summary-card neutral"><span>Idle turns</span>'
-        f"<strong>{_percent(idle_percent)}</strong></div>"
-        f'<div class="summary-card neutral"><span>Longest PASS streak</span>'
-        f"<strong>{longest}</strong></div>"
-        f'<div class="summary-card opponent"><span>Fallbacks inferred</span>'
-        f"<strong>{fallbacks}</strong></div>"
-        f'<div class="summary-card opponent"><span>Lost actions</span><strong>{lost}</strong></div>'
+        '<section class="kpi-grid behavior-summary" aria-label="Idle and fallback summary">'
+        f'<div class="kpi-card neutral"><span>Idle Turns %</span>'
+        f"<strong>{_percent(idle_percent)}</strong>"
+        f"<small>Total wasted turns</small></div>"
+        f'<div class="kpi-card neutral"><span>Longest PASS Streak</span>'
+        f"<strong>{longest} turns</strong>"
+        f"<small>Max consecutive wait</small></div>"
+        f'<div class="kpi-card opponent"><span>Fallbacks Inferred</span>'
+        f"<strong>{fallbacks}</strong>"
+        f"<small>Sanitized commands</small></div>"
+        f'<div class="kpi-card opponent"><span>Lost Action Slots</span>'
+        f"<strong>{lost}</strong>"
+        f"<small>Dropped commands</small></div>"
         "</section>"
     )
 
@@ -659,7 +930,8 @@ def _behavior_details_html(episode: ReportEpisode) -> str:
     classes = _metric(episode.metrics, "turn_classes", {})
     rows = (
         "".join(
-            f"<tr><td>{escape(str(name))}</td><td>{count}</td></tr>"
+            f"<tr><td><span class='badge-action {escape(str(name))}'>"
+            f"{escape(str(name))}</span></td><td><strong>{count}</strong></td></tr>"
             for name, count in classes.items()
         )
         if isinstance(classes, dict)
@@ -669,10 +941,10 @@ def _behavior_details_html(episode: ReportEpisode) -> str:
     table_rows = rows or '<tr><td colspan="2">No turn metrics</td></tr>'
     return (
         '<section class="behavior-details" aria-label="PASS cause audit">'
-        "<h2>Turn cause audit</h2>"
-        "<table><thead><tr><th>Turn class</th><th>Count</th></tr></thead>"
+        "<h2>Turn Classification Breakdown</h2>"
+        "<table><thead><tr><th>Turn Class</th><th>Turn Count</th></tr></thead>"
         f"<tbody>{table_rows}</tbody></table>"
-        "<details><summary>Day-hour heatmap</summary>"
+        "<details><summary>Day-Hour Heatmap Matrix (JSON)</summary>"
         f"<pre>{escape(_json_text(heatmap))}</pre></details>"
         "</section>"
     )
@@ -683,7 +955,8 @@ def _cycle_details_html(episode: ReportEpisode) -> str:
     if not isinstance(cycle, dict) or not cycle:
         return ""
     rows = "".join(
-        f"<tr><td>{escape(str(label))}</td><td>{escape(str(cycle.get(key, 0)))}</td></tr>"
+        f"<tr><td>{escape(str(label))}</td><td><strong>"
+        f"{escape(str(cycle.get(key, 0)))}</strong></td></tr>"
         for key, label in (
             ("commitments_created", "Commitments created"),
             ("commitments_confirmed", "Commitments confirmed"),
@@ -699,8 +972,8 @@ def _cycle_details_html(episode: ReportEpisode) -> str:
     )
     return (
         '<section class="behavior-details" aria-label="Cycle memory audit">'
-        "<h2>Cycle memory audit</h2>"
-        "<table><thead><tr><th>Metric</th><th>Value</th></tr></thead>"
+        "<h2>Cycle Memory & Plan Commitments</h2>"
+        "<table><thead><tr><th>Commitment Metric</th><th>Value</th></tr></thead>"
         f"<tbody>{rows}</tbody></table></section>"
     )
 
@@ -720,7 +993,8 @@ def _action_table(title: str, counts: tuple[tuple[str, int], ...], css_class: st
         rows = '<tr><td colspan="2">No actions recorded</td></tr>'
     else:
         rows = "".join(
-            f"<tr><td>{escape(label)}</td><td>{count}</td></tr>" for label, count in counts
+            f"<tr><td><code>{escape(label)}</code></td><td><strong>{count}</strong></td></tr>"
+            for label, count in counts
         )
     return (
         f'<div class="action-panel {css_class}"><h3>{escape(title)}</h3>'
@@ -935,7 +1209,7 @@ def _text(value: Any) -> str | None:
 
 
 def _display(value: float | None) -> str:
-    return "-" if value is None else f"{value:.2f}".rstrip("0").rstrip(".")
+    return "-" if value is None else f"{value:,.2f}".rstrip("0").rstrip(".")
 
 
 def _json_text(value: Any) -> str:
@@ -966,45 +1240,231 @@ def _deduplicate_submissions(items: list[ReportSubmission]) -> list[ReportSubmis
 
 
 _CSS = """
-body{font-family:system-ui,sans-serif;background:#f6f7f9;color:#20242a;margin:0}
-main{max-width:1200px;margin:2rem auto;padding:0 1rem}
-table{border-collapse:collapse;width:100%;background:#fff;margin:1rem 0}
-th,td{border:1px solid #d9dee7;padding:.55rem;text-align:left;vertical-align:top}
-th{background:#eaf0f7}pre{white-space:pre-wrap;margin:0;max-width:58rem}
-a{color:#145da0}li{margin:.35rem 0}h1{color:#16324f}p{line-height:1.5}
-.summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));
-gap:.75rem;margin:1.25rem 0}
-.summary-card{background:#fff;border:1px solid #d9dee7;border-left:5px solid #8b98a8;
-border-radius:.35rem;padding:.8rem 1rem}
-.summary-card span,.score-card span{display:block;font-size:.82rem;font-weight:700;
-letter-spacing:.04em;text-transform:uppercase;color:#536273}
-.summary-card strong{display:block;font-size:1.65rem;margin-top:.2rem}
-.summary-card strong.summary-name{font-size:1rem;overflow-wrap:anywhere}
-.action-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}
-.action-panel{background:#fff;border:1px solid #d9dee7;border-radius:.35rem;padding:.25rem .75rem}
-.action-panel.ours{border-top:4px solid #198754}.action-panel.opponent{border-top:4px solid #dc3545}
-.action-panel h3{margin:.65rem 0;color:#16324f}.action-panel table{margin:.5rem 0}
-details{margin:1rem 0;background:#fff;border:1px solid #d9dee7;border-radius:.35rem;padding:.75rem}
-summary{cursor:pointer;font-weight:700;color:#16324f}
-.summary-card.ours,.score-card.ours{border-color:#198754;background:#edf8f1}
-.summary-card.opponent,.score-card.opponent{border-color:#dc3545;background:#fff0f1}
-.summary-card.tie{border-color:#0d6efd;background:#eef5ff}
-.summary-card.neutral{border-color:#8b98a8}
-.record,.notice{background:#fff;border:1px solid #d9dee7;border-radius:.35rem;padding:.8rem 1rem}
-.notice.self-play-note{border-left:5px solid #6c757d;background:#f1f3f5}
-.scoreboard{display:flex;align-items:stretch;gap:.75rem;margin:1.25rem 0}
-.score-card{flex:1;border:2px solid #8b98a8;border-radius:.45rem;padding:1rem;
-text-align:center;background:#fff}
-.score-card strong{display:block;font-size:2rem;margin-top:.25rem}
-.versus{align-self:center;font-weight:800;color:#536273}
-.result-line{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap}
-.result-badge,.record-badge{display:inline-block;border-radius:999px;padding:.2rem .55rem;
-font-size:.75rem;font-weight:800;letter-spacing:.03em;white-space:nowrap}
-.result-badge.ours-win{background:#198754;color:#fff}.result-badge.opponent-win{background:#dc3545;color:#fff}
-.result-badge.tie-result{background:#0d6efd;color:#fff}.result-badge.unknown-result{background:#6c757d;color:#fff}
-.result-badge.self-play{background:#6c757d;color:#fff}
-tr.ours-win{background:#f2fbf5}tr.opponent-win{background:#fff7f7}tr.tie-result{background:#f5f9ff}
-tr.self-play{background:#f1f3f5;color:#536273}
+:root {
+  --primary: #1565c0;
+  --primary-light: #e3f2fd;
+  --success: #2e7d32;
+  --success-light: #e8f5e9;
+  --danger: #c62828;
+  --danger-light: #ffebee;
+  --warning: #ef6c00;
+  --warning-light: #fff3e0;
+  --neutral: #455a64;
+  --neutral-light: #eceff1;
+  --bg: #f8fafc;
+  --card-bg: #ffffff;
+  --border: #e2e8f0;
+  --text: #1e293b;
+  --text-muted: #64748b;
+}
+
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  margin: 0;
+  line-height: 1.5;
+}
+main { max-width: 1300px; margin: 2rem auto; padding: 0 1.5rem; }
+
+h1 { color: #0f172a; margin-bottom: 0.25rem; font-size: 1.85rem; }
+h2 {
+  color: #1e293b;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.35rem;
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 0.4rem;
+}
+h3 { color: #334155; margin: 0.5rem 0; font-size: 1.1rem; }
+p.subtitle { color: var(--text-muted); font-size: 1.05rem; margin: 0 0 1.25rem 0; }
+a { color: var(--primary); text-decoration: none; font-weight: 500; }
+a:hover { text-decoration: underline; }
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+.kpi-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.1rem 1.25rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.kpi-card span {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.kpi-card strong {
+  display: block;
+  font-size: 1.75rem;
+  margin: 0.35rem 0 0.15rem 0;
+  color: #0f172a;
+}
+.kpi-card small { display: block; font-size: 0.82rem; color: var(--text-muted); }
+
+.kpi-card.highlight-ours {
+  border-left: 5px solid var(--primary);
+  background: linear-gradient(135deg, #ffffff 0%, var(--primary-light) 100%);
+}
+.kpi-card.ours {
+  border-left: 5px solid var(--success);
+  background: linear-gradient(135deg, #ffffff 0%, var(--success-light) 100%);
+}
+.kpi-card.opponent {
+  border-left: 5px solid var(--danger);
+  background: linear-gradient(135deg, #ffffff 0%, var(--danger-light) 100%);
+}
+.kpi-card.neutral {
+  border-left: 5px solid var(--neutral);
+  background: linear-gradient(135deg, #ffffff 0%, var(--neutral-light) 100%);
+}
+
+.scoreboard {
+  display: flex;
+  align-items: stretch;
+  gap: 1rem;
+  margin: 1.5rem 0;
+  max-width: 750px;
+}
+.score-card {
+  flex: 1;
+  border-radius: 8px;
+  padding: 1.25rem;
+  text-align: center;
+  background: var(--card-bg);
+  border: 2px solid var(--border);
+}
+.score-card span {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.score-card strong { display: block; font-size: 2.25rem; margin-top: 0.35rem; }
+.score-card.ours {
+  border-color: var(--success);
+  background: var(--success-light);
+  color: var(--success);
+}
+.score-card.opponent {
+  border-color: var(--danger);
+  background: var(--danger-light);
+  color: var(--danger);
+}
+.versus { align-self: center; font-weight: 800; font-size: 1.25rem; color: var(--text-muted); }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  background: var(--card-bg);
+  margin: 1rem 0 2rem 0;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+th, td {
+  border: 1px solid var(--border);
+  padding: 0.65rem 0.85rem;
+  text-align: left;
+  vertical-align: middle;
+  font-size: 0.92rem;
+}
+th {
+  background: #f1f5f9;
+  color: #334155;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+tbody tr:hover { background: #f8fafc; }
+
+.status-pill {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.result-badge, .record-badge {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.result-badge.ours-win, tr.ours-win { background: var(--success); color: #ffffff; }
+.result-badge.opponent-win, tr.opponent-win { background: var(--danger); color: #ffffff; }
+.result-badge.tie-result, tr.tie-result { background: var(--primary); color: #ffffff; }
+.result-badge.self-play, tr.self-play { background: var(--neutral); color: #ffffff; }
+.record-badge { background: #0f172a; color: #ffffff; }
+
+tr.ours-win { background: #f0fdf4 !important; }
+tr.opponent-win { background: #fef2f2 !important; }
+tr.tie-result { background: #eff6ff !important; }
+tr.self-play { background: #f8fafc !important; color: #64748b; }
+
+.badge-action {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.badge-action.productive { background: var(--success-light); color: var(--success); }
+.badge-action.movement { background: var(--primary-light); color: var(--primary); }
+.badge-action.legitimate_wait { background: var(--warning-light); color: var(--warning); }
+.badge-action.idle_pass { background: #f1f5f9; color: var(--neutral); }
+.badge-action.fallback_pass { background: var(--danger-light); color: var(--danger); }
+
+.margin-positive { color: var(--success); font-weight: 700; }
+.margin-negative { color: var(--danger); font-weight: 700; }
+
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 1.25rem;
+  margin: 1.5rem 0;
+}
+.action-panel {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+.action-panel.ours { border-top: 4px solid var(--success); }
+.action-panel.opponent { border-top: 4px solid var(--danger); }
+
+details {
+  margin: 1.5rem 0;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+summary { cursor: pointer; font-weight: 700; color: #0f172a; font-size: 1.05rem; }
+pre {
+  background: #0f172a;
+  color: #f8fafc;
+  padding: 1rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.85rem;
+}
+code { background: #f1f5f9; padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.85rem; }
 """
 
 

@@ -44,7 +44,8 @@ def _observation(
             "inventories": [inventory or {}],
         },
         "market": {
-            "prices": prices or {"WHEAT": 25, "CARROT": 35, "TOMATO": 60, "STRAWBERRY": 120, "MELON": 250},
+            "prices": prices
+            or {"WHEAT": 25, "CARROT": 35, "TOMATO": 60, "STRAWBERRY": 120, "MELON": 250},
             "inventory": {"WHEAT": 10_000, "MELON": 10_000, "STRAWBERRY": 10_000},
         },
         "town": {"unlocked_shops": [], "demand": demand or {}},
