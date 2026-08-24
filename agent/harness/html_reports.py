@@ -668,6 +668,7 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
         f"<strong>{len(episode.errors)} errors</strong>"
         f"<small>Fallbacks: {_metric(episode.metrics, 'fallbacks_inferred')}</small></div>"
         "</section>"
+        f"{_score_evolution_chart_html(episode)}"
         f"{daily_table}"
         f"{action_summary}"
         f"{_behavior_details_html(episode)}"
@@ -678,6 +679,124 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
         f"<th>Error</th></tr></thead><tbody>{move_rows}</tbody></table></details>"
     )
     return _page(f"Episode {episode.episode_id}", body, css_href="../../../assets/style.css")
+
+
+def _score_evolution_chart_html(episode: ReportEpisode) -> str:
+    """Generate an accessible, pure SVG line chart comparing our score vs opponent."""
+    economic = _metric(episode.metrics, "economic", {})
+    daily = economic.get("daily", []) if isinstance(economic, dict) else []
+
+    # Extract points (Day 0 to 30)
+    our_points: list[tuple[int, float]] = []
+    if daily:
+        for d in daily:
+            day = int(d.get("day", 0))
+            end_val = float(d.get("money_end", d.get("money_start", 0)) or 0)
+            our_points.append((day, end_val))
+    elif episode.score is not None:
+        our_points = [(0, 3000.0), (30, float(episode.score))]
+    else:
+        return ""
+
+    # Opponent points (interpolated or from daily if present)
+    opp_final = float(episode.opponent_score) if episode.opponent_score is not None else 3000.0
+    opp_points = [(0, 3000.0), (30, opp_final)]
+
+    # Compute bounds
+    all_vals = [p[1] for p in our_points] + [p[1] for p in opp_points]
+    max_val = max(max(all_vals, default=5000), 5000.0) * 1.15
+    min_val = 0.0
+
+    width, height = 900, 320
+    pad_left, pad_right, pad_top, pad_bottom = 80, 40, 30, 50
+    plot_w = width - pad_left - pad_right
+    plot_h = height - pad_top - pad_bottom
+
+    def scale_x(day: float) -> float:
+        return pad_left + (day / 30.0) * plot_w
+
+    def scale_y(val: float) -> float:
+        norm = (val - min_val) / (max_val - min_val) if max_val > min_val else 0.5
+        return pad_top + (1.0 - norm) * plot_h
+
+    # Build SVG paths
+    our_d = " ".join(
+        f"{'M' if i == 0 else 'L'} {scale_x(p[0]):.1f} {scale_y(p[1]):.1f}"
+        for i, p in enumerate(our_points)
+    )
+    opp_d = f"M {scale_x(0):.1f} {scale_y(3000):.1f} L {scale_x(30):.1f} {scale_y(opp_final):.1f}"
+
+    # Gridlines and Y-axis labels
+    grid_lines = []
+    for step in range(5):
+        y_val = min_val + (max_val - min_val) * (step / 4.0)
+        y_pos = scale_y(y_val)
+        grid_lines.append(
+            f'<line x1="{pad_left}" y1="{y_pos:.1f}" x2="{width - pad_right}" y2="{y_pos:.1f}" '
+            'stroke="#e2e8f0" stroke-width="1.5" stroke-dasharray="4,4"/>'
+            f'<text x="{pad_left - 12}" y="{y_pos + 4:.1f}" fill="#475569" '
+            f'font-size="12" font-weight="700" text-anchor="end">${y_val:,.0f}</text>'
+        )
+
+    # X-axis labels (Days 0, 5, 10, 15, 20, 25, 30)
+    x_labels = []
+    for day in range(0, 31, 5):
+        x_pos = scale_x(day)
+        x_labels.append(
+            f'<line x1="{x_pos:.1f}" y1="{pad_top}" x2="{x_pos:.1f}" y2="{height - pad_bottom}" '
+            'stroke="#f1f5f9" stroke-width="1"/>'
+            f'<text x="{x_pos:.1f}" y="{height - pad_bottom + 22}" fill="#475569" '
+            f'font-size="12" font-weight="700" text-anchor="middle">Day {day}</text>'
+        )
+
+    # Markers for our key milestones
+    circles = []
+    for p in our_points:
+        if p[0] in {0, 10, 20, 30} or p == our_points[-1]:
+            cx, cy = scale_x(p[0]), scale_y(p[1])
+            circles.append(
+                f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="5" fill="#16a34a" '
+                'stroke="#ffffff" stroke-width="2"/>'
+                f'<text x="{cx:.1f}" y="{cy - 10:.1f}" fill="#14532d" '
+                f'font-size="11" font-weight="800" text-anchor="middle">${p[1]:,.0f}</text>'
+            )
+
+    # Final opp marker
+    opp_cx, opp_cy = scale_x(30), scale_y(opp_final)
+    circles.append(
+        f'<circle cx="{opp_cx:.1f}" cy="{opp_cy:.1f}" r="5" fill="#dc2626" '
+        'stroke="#ffffff" stroke-width="2"/>'
+        f'<text x="{opp_cx:.1f}" y="{opp_cy - 10:.1f}" fill="#991b1b" '
+        f'font-size="11" font-weight="800" text-anchor="middle">${opp_final:,.0f}</text>'
+    )
+
+    svg_content = (
+        f'<svg viewBox="0 0 {width} {height}" style="width:100%; height:auto; display:block;" '
+        'xmlns="http://www.w3.org/2000/svg">'
+        f"{''.join(grid_lines)}"
+        f"{''.join(x_labels)}"
+        f'<path d="{opp_d}" fill="none" stroke="#dc2626" stroke-width="3" '
+        'stroke-dasharray="6,4" stroke-linecap="round"/>'
+        f'<path d="{our_d}" fill="none" stroke="#16a34a" stroke-width="3.5" '
+        'stroke-linecap="round" stroke-linejoin="round"/>'
+        f"{''.join(circles)}"
+        "</svg>"
+    )
+
+    our_name_esc = escape(episode.our_agent_name or "Us")
+    opp_name_esc = escape(episode.opponent_agent_name or "Opp")
+    return (
+        '<section class="chart-container" aria-label="Score Evolution Chart">'
+        '<div class="chart-header">'
+        '<div class="chart-title">Financial Evolution: Our Score vs Opponent (30 Days)</div>'
+        '<div class="chart-legend">'
+        '<div class="legend-item"><div class="legend-color legend-ours"></div>'
+        f"<span>Our Submission ({our_name_esc})</span></div>"
+        '<div class="legend-item"><div class="legend-color legend-opp"></div>'
+        f"<span>Opponent ({opp_name_esc})</span></div>"
+        "</div></div>"
+        f"{svg_content}</section>"
+    )
 
 
 def _daily_economic_table_html(episode: ReportEpisode) -> str:
@@ -1241,230 +1360,331 @@ def _deduplicate_submissions(items: list[ReportSubmission]) -> list[ReportSubmis
 
 _CSS = """
 :root {
-  --primary: #1565c0;
-  --primary-light: #e3f2fd;
-  --success: #2e7d32;
-  --success-light: #e8f5e9;
-  --danger: #c62828;
-  --danger-light: #ffebee;
-  --warning: #ef6c00;
-  --warning-light: #fff3e0;
-  --neutral: #455a64;
-  --neutral-light: #eceff1;
+  --primary: #0284c7;
+  --primary-dark: #0369a1;
+  --primary-light: #e0f2fe;
+  --success: #15803d;
+  --success-dark: #166534;
+  --success-light: #dcfce7;
+  --danger: #b91c1c;
+  --danger-dark: #991b1b;
+  --danger-light: #fee2e2;
+  --warning: #c2410c;
+  --warning-light: #ffedd5;
+  --neutral: #334155;
+  --neutral-light: #f1f5f9;
   --bg: #f8fafc;
   --card-bg: #ffffff;
-  --border: #e2e8f0;
-  --text: #1e293b;
-  --text-muted: #64748b;
+  --border: #cbd5e1;
+  --border-dark: #94a3b8;
+  --text: #0f172a;
+  --text-muted: #475569;
 }
 
 * { box-sizing: border-box; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
   margin: 0;
-  line-height: 1.5;
+  line-height: 1.6;
+  font-size: 15px;
 }
 main { max-width: 1300px; margin: 2rem auto; padding: 0 1.5rem; }
 
-h1 { color: #0f172a; margin-bottom: 0.25rem; font-size: 1.85rem; }
-h2 {
-  color: #1e293b;
-  margin-top: 2rem;
-  margin-bottom: 0.75rem;
-  font-size: 1.35rem;
-  border-bottom: 2px solid var(--border);
-  padding-bottom: 0.4rem;
+h1 {
+  color: #0f172a;
+  margin-bottom: 0.35rem;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
 }
-h3 { color: #334155; margin: 0.5rem 0; font-size: 1.1rem; }
-p.subtitle { color: var(--text-muted); font-size: 1.05rem; margin: 0 0 1.25rem 0; }
-a { color: var(--primary); text-decoration: none; font-weight: 500; }
-a:hover { text-decoration: underline; }
+h2 {
+  color: #0f172a;
+  margin-top: 2.25rem;
+  margin-bottom: 0.85rem;
+  font-size: 1.4rem;
+  font-weight: 700;
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 0.5rem;
+}
+h3 { color: #1e293b; margin: 0.6rem 0; font-size: 1.15rem; font-weight: 700; }
+p.subtitle { color: var(--text-muted); font-size: 1.05rem; margin: 0 0 1.5rem 0; }
+a { color: var(--primary-dark); text-decoration: none; font-weight: 600; }
+a:hover { text-decoration: underline; color: #0c4a6e; }
 
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.25rem;
   margin: 1.5rem 0;
 }
 .kpi-card {
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1.1rem 1.25rem;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.04);
 }
 .kpi-card span {
   display: block;
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.82rem;
+  font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
 }
 .kpi-card strong {
   display: block;
-  font-size: 1.75rem;
+  font-size: 1.85rem;
+  font-weight: 800;
   margin: 0.35rem 0 0.15rem 0;
   color: #0f172a;
 }
-.kpi-card small { display: block; font-size: 0.82rem; color: var(--text-muted); }
+.kpi-card small { display: block; font-size: 0.88rem; color: #475569; font-weight: 500; }
 
 .kpi-card.highlight-ours {
-  border-left: 5px solid var(--primary);
-  background: linear-gradient(135deg, #ffffff 0%, var(--primary-light) 100%);
+  border-left: 6px solid var(--primary-dark);
+  background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
 }
 .kpi-card.ours {
-  border-left: 5px solid var(--success);
-  background: linear-gradient(135deg, #ffffff 0%, var(--success-light) 100%);
+  border-left: 6px solid var(--success-dark);
+  background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
 }
 .kpi-card.opponent {
-  border-left: 5px solid var(--danger);
-  background: linear-gradient(135deg, #ffffff 0%, var(--danger-light) 100%);
+  border-left: 6px solid var(--danger-dark);
+  background: linear-gradient(135deg, #ffffff 0%, #fef2f2 100%);
 }
 .kpi-card.neutral {
-  border-left: 5px solid var(--neutral);
-  background: linear-gradient(135deg, #ffffff 0%, var(--neutral-light) 100%);
+  border-left: 6px solid var(--neutral);
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
 }
 
 .scoreboard {
   display: flex;
   align-items: stretch;
-  gap: 1rem;
+  gap: 1.25rem;
   margin: 1.5rem 0;
-  max-width: 750px;
+  max-width: 800px;
 }
 .score-card {
   flex: 1;
-  border-radius: 8px;
-  padding: 1.25rem;
+  border-radius: 10px;
+  padding: 1.5rem;
   text-align: center;
   background: var(--card-bg);
   border: 2px solid var(--border);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 .score-card span {
   display: block;
-  font-size: 0.85rem;
-  font-weight: 700;
+  font-size: 0.9rem;
+  font-weight: 800;
   text-transform: uppercase;
   color: var(--text-muted);
 }
-.score-card strong { display: block; font-size: 2.25rem; margin-top: 0.35rem; }
+.score-card strong { display: block; font-size: 2.5rem; font-weight: 900; margin-top: 0.35rem; }
 .score-card.ours {
-  border-color: var(--success);
-  background: var(--success-light);
-  color: var(--success);
+  border-color: var(--success-dark);
+  background: #f0fdf4;
+  color: #14532d;
 }
 .score-card.opponent {
-  border-color: var(--danger);
-  background: var(--danger-light);
-  color: var(--danger);
+  border-color: var(--danger-dark);
+  background: #fef2f2;
+  color: #7f1d1d;
 }
-.versus { align-self: center; font-weight: 800; font-size: 1.25rem; color: var(--text-muted); }
+.versus { align-self: center; font-weight: 900; font-size: 1.4rem; color: #64748b; }
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+  margin: 1.25rem 0;
+}
+.summary-card {
+  background: var(--card-bg);
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+.summary-card span {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.summary-card strong {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin-top: 0.25rem;
+}
+.summary-card.ours { border-left: 5px solid var(--success-dark); background: #f0fdf4; }
+.summary-card.opponent { border-left: 5px solid var(--danger-dark); background: #fef2f2; }
+.summary-card.tie { border-left: 5px solid var(--primary-dark); background: #f0f9ff; }
+.summary-card.neutral { border-left: 5px solid var(--neutral); background: #f8fafc; }
+
+/* SVG Score Evolution Chart */
+.chart-container {
+  background: var(--card-bg);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 1.5rem;
+  margin: 1.5rem 0 2rem 0;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+}
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.75rem;
+}
+.chart-title { font-size: 1.15rem; font-weight: 800; color: #0f172a; }
+.chart-legend { display: flex; gap: 1.5rem; font-size: 0.9rem; font-weight: 700; }
+.legend-item { display: flex; align-items: center; gap: 0.5rem; }
+.legend-color { width: 14px; height: 14px; border-radius: 3px; }
+.legend-ours { background: #16a34a; }
+.legend-opp { background: #dc2626; }
 
 table {
   border-collapse: collapse;
   width: 100%;
   background: var(--card-bg);
   margin: 1rem 0 2rem 0;
-  border-radius: 6px;
+  border-radius: 8px;
   overflow: hidden;
+  border: 1.5px solid var(--border);
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 th, td {
   border: 1px solid var(--border);
-  padding: 0.65rem 0.85rem;
+  padding: 0.75rem 1rem;
   text-align: left;
   vertical-align: middle;
-  font-size: 0.92rem;
+  font-size: 0.94rem;
+  color: #0f172a;
 }
 th {
   background: #f1f5f9;
-  color: #334155;
-  font-weight: 600;
+  color: #1e293b;
+  font-weight: 800;
   font-size: 0.85rem;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
 }
 tbody tr:hover { background: #f8fafc; }
 
 .status-pill {
   display: inline-block;
-  padding: 0.15rem 0.6rem;
+  padding: 0.2rem 0.65rem;
   border-radius: 999px;
   background: #e2e8f0;
-  font-size: 0.8rem;
-  font-weight: 600;
+  color: #1e293b;
+  font-size: 0.82rem;
+  font-weight: 700;
 }
 .result-badge, .record-badge {
   display: inline-block;
   border-radius: 999px;
-  padding: 0.25rem 0.65rem;
-  font-size: 0.75rem;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
   font-weight: 800;
   letter-spacing: 0.04em;
 }
-.result-badge.ours-win, tr.ours-win { background: var(--success); color: #ffffff; }
-.result-badge.opponent-win, tr.opponent-win { background: var(--danger); color: #ffffff; }
-.result-badge.tie-result, tr.tie-result { background: var(--primary); color: #ffffff; }
-.result-badge.self-play, tr.self-play { background: var(--neutral); color: #ffffff; }
+.result-badge.ours-win, tr.ours-win { background: #166534; color: #ffffff; }
+.result-badge.opponent-win, tr.opponent-win { background: #991b1b; color: #ffffff; }
+.result-badge.tie-result, tr.tie-result { background: #0369a1; color: #ffffff; }
+.result-badge.self-play, tr.self-play { background: #334155; color: #ffffff; }
 .record-badge { background: #0f172a; color: #ffffff; }
 
 tr.ours-win { background: #f0fdf4 !important; }
 tr.opponent-win { background: #fef2f2 !important; }
-tr.tie-result { background: #eff6ff !important; }
-tr.self-play { background: #f8fafc !important; color: #64748b; }
+tr.tie-result { background: #f0f9ff !important; }
+tr.self-play { background: #f8fafc !important; color: #475569; }
 
 .badge-action {
   display: inline-block;
-  padding: 0.15rem 0.5rem;
+  padding: 0.2rem 0.6rem;
   border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 700;
+  font-size: 0.78rem;
+  font-weight: 800;
   text-transform: uppercase;
 }
-.badge-action.productive { background: var(--success-light); color: var(--success); }
-.badge-action.movement { background: var(--primary-light); color: var(--primary); }
-.badge-action.legitimate_wait { background: var(--warning-light); color: var(--warning); }
-.badge-action.idle_pass { background: #f1f5f9; color: var(--neutral); }
-.badge-action.fallback_pass { background: var(--danger-light); color: var(--danger); }
+.badge-action.productive {
+  background: var(--success-light);
+  color: #14532d;
+  border: 1px solid #bbf7d0;
+}
+.badge-action.movement {
+  background: var(--primary-light);
+  color: #075985;
+  border: 1px solid #bae6fd;
+}
+.badge-action.legitimate_wait {
+  background: var(--warning-light);
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+}
+.badge-action.idle_pass {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+.badge-action.fallback_pass {
+  background: var(--danger-light);
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
 
-.margin-positive { color: var(--success); font-weight: 700; }
-.margin-negative { color: var(--danger); font-weight: 700; }
+.margin-positive { color: #166534; font-weight: 800; }
+.margin-negative { color: #991b1b; font-weight: 800; }
 
 .action-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-  gap: 1.25rem;
+  gap: 1.5rem;
   margin: 1.5rem 0;
 }
 .action-panel {
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
-.action-panel.ours { border-top: 4px solid var(--success); }
-.action-panel.opponent { border-top: 4px solid var(--danger); }
+.action-panel.ours { border-top: 5px solid #16a34a; }
+.action-panel.opponent { border-top: 5px solid #dc2626; }
 
 details {
   margin: 1.5rem 0;
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1rem;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
 }
-summary { cursor: pointer; font-weight: 700; color: #0f172a; font-size: 1.05rem; }
+summary { cursor: pointer; font-weight: 800; color: #0f172a; font-size: 1.1rem; }
 pre {
   background: #0f172a;
   color: #f8fafc;
-  padding: 1rem;
-  border-radius: 6px;
+  padding: 1.25rem;
+  border-radius: 8px;
   overflow-x: auto;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
-code { background: #f1f5f9; padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.85rem; }
+code {
+  background: #f1f5f9;
+  color: #0f172a;
+  font-weight: 600;
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.88rem;
+}
 """
 
 
