@@ -105,29 +105,54 @@ def _update_remote(
     logs_available = True
     logs_warning_shown = False
     submissions_list = _records(listing)
-    print(f"Fetching replays/logs for {len(submissions_list)} remote submissions from Kaggle...")
-    for sub_idx, submission in enumerate(submissions_list, 1):
+
+    # 1. First pass: Collect all pending episodes and check which ones need downloading
+    all_submission_episodes: list[tuple[dict[str, Any], Path, list[dict[str, Any]]]] = []
+    total_episodes_count = 0
+    for submission in submissions_list:
         submission_id = _identifier(submission, "submission")
         destination = raw_root / _slug(submission_id) / "raw"
         destination.mkdir(parents=True, exist_ok=True)
         _write_json(destination / "submission.json", submission)
-        episodes_data = _kaggle_json(
-            ["competitions", "episodes", submission_id, "--format", "json", "--quiet"]
-        )
+
+        # Lazy check for episodes listing: fetch if missing or submission is still active/pending
+        episodes_path = destination / "episodes.json"
+        is_complete = str(submission.get("status", "")).upper() in {
+            "COMPLETE",
+            "SUBMISSIONSTATUS.COMPLETE",
+        }
+        if episodes_path.is_file() and is_complete:
+            episodes_data = _read_json(episodes_path)
+        else:
+            episodes_data = _kaggle_json(
+                ["competitions", "episodes", submission_id, "--format", "json", "--quiet"]
+            )
+            _write_json(episodes_path, episodes_data)
+
         episodes = _records(episodes_data)
-        _write_json(destination / "episodes.json", episodes_data)
-        print(
-            f"[{sub_idx}/{len(submissions_list)}] "
-            f"Submission {submission_id}: {len(episodes)} episodes"
-        )
+        all_submission_episodes.append((submission, destination, episodes))
+        total_episodes_count += len(episodes)
+
+    # 2. Download pass with progress bar
+    print(
+        f"Checking/Downloading {total_episodes_count} episodes "
+        f"across {len(submissions_list)} submissions..."
+    )
+    dl_bar = _ProgressBar(total=max(1, total_episodes_count), prefix="Downloading replays")
+
+    for submission, destination, episodes in all_submission_episodes:
         for episode in episodes:
             episode_id = _identifier(episode, "episode")
             episode_dir = destination / _slug(episode_id)
             episode_dir.mkdir(parents=True, exist_ok=True)
+
+            # Lazy download replay only if not present locally
             if not _has_json(episode_dir, "replay"):
                 _download(
                     ["competitions", "replay", episode_id, "--path", str(episode_dir), "--quiet"]
                 )
+
+            # Lazy download logs only if not present locally
             if logs_available:
                 for agent_index in (0, 1):
                     if not _has_log(episode_dir, agent_index):
@@ -144,11 +169,6 @@ def _update_remote(
                                 ]
                             )
                         except RuntimeError as exc:
-                            # Agent logs are useful diagnostics, but Kaggle may
-                            # deny this endpoint while still allowing metadata
-                            # and replays. Keep the report usable and avoid
-                            # repeating the same forbidden request for every
-                            # episode in the submission list.
                             logs_available = False
                             if not logs_warning_shown:
                                 print(
@@ -158,7 +178,10 @@ def _update_remote(
                                 )
                                 logs_warning_shown = True
                             break
+            dl_bar.update(f"Ep {episode_id}")
+
         submissions.append(load_remote_submission(submission, episodes, destination, agent_name))
+
     return submissions
 
 
