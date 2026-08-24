@@ -33,6 +33,10 @@ def test_replay_report_keeps_scores_moves_and_errors() -> None:
     assert episode.winner == "submission"
     assert [move.action["farmer"][0] for move in episode.moves] == ["WATER", "HARVEST"]
     assert episode.errors == ("illegal move",)
+    assert episode.our_agent_name == "submission"
+    assert episode.opponent_agent_name == "opponent"
+    assert episode.our_action_counts[0] == ("farmer: HARVEST", 1)
+    assert episode.our_action_counts[1] == ("farmer: WATER", 1)
 
 
 def test_replay_report_uses_named_agent_when_agent_order_changes() -> None:
@@ -117,6 +121,7 @@ def test_local_artifacts_render_submission_and_episode_pages(tmp_path) -> None:
     assert "456" in submission_page.read_text(encoding="utf-8")
     html = episode_page.read_text(encoding="utf-8")
     assert "WATER" in html and "HARVEST" in html and "boom" in html
+    assert "Game summary" in html and "All moves (2 turns)" in html
     assert "../../../assets/style.css" in html
 
 

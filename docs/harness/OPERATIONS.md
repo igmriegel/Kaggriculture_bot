@@ -45,7 +45,9 @@ summary and linked episode pages comparing **Our submission** against
 **Opponent**, including scores, actions, and errors or fallbacks. Replays where
 both agent slots have our own name are shown as self-play and excluded from
 summary counts and averages. Raw downloads are cached beside the HTML so later
-runs are incremental. Use `make reports-local` without network access and
+runs are incremental. Each replay page also summarizes participants, score
+margin, market-order volume, command frequencies, errors, and the full move
+trace. Use `make reports-local` without network access and
 `make reports-download` to refresh only the remote cache.
 The updater infers our agent from the name repeated across the submission's
 replays; set `AGENT_NAME="Display Name"` when a competition has a fixed or

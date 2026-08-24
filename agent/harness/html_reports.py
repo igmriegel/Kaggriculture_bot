@@ -30,6 +30,12 @@ class ReportEpisode:
     errors: tuple[str, ...] = ()
     moves: tuple[ReportMove, ...] = ()
     source: str | None = None
+    our_agent_name: str | None = None
+    opponent_agent_name: str | None = None
+    our_action_counts: tuple[tuple[str, int], ...] = ()
+    opponent_action_counts: tuple[tuple[str, int], ...] = ()
+    our_market_orders: int = 0
+    opponent_market_orders: int = 0
 
 
 @dataclass
@@ -196,6 +202,17 @@ def episode_from_replay(
     rewards: list[Any] = raw_rewards if isinstance(raw_rewards, list) else []
     agent_index = _agent_index(replay, agent_name)
     opponent_index = 1 - agent_index if len(rewards) > 1 else None
+    agents = _replay_agents(replay)
+    our_agent_name = _agent_display_name(agents[agent_index]) if agent_index < len(agents) else None
+    opponent_agent_name = (
+        _agent_display_name(agents[opponent_index])
+        if opponent_index is not None and opponent_index < len(agents)
+        else None
+    )
+    our_action_counts, our_market_orders = _action_counts(steps, agent_index)
+    opponent_action_counts, opponent_market_orders = (
+        _action_counts(steps, opponent_index) if opponent_index is not None else ((), 0)
+    )
     moves: list[ReportMove] = []
     for turn, step in enumerate(steps):
         if not isinstance(step, list) or agent_index >= len(step):
@@ -220,6 +237,12 @@ def episode_from_replay(
         errors=tuple(dict.fromkeys(errors)),
         moves=tuple(moves),
         source=source,
+        our_agent_name=our_agent_name,
+        opponent_agent_name=opponent_agent_name,
+        our_action_counts=our_action_counts,
+        opponent_action_counts=opponent_action_counts,
+        our_market_orders=our_market_orders,
+        opponent_market_orders=opponent_market_orders,
     )
 
 
@@ -339,6 +362,12 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
     excluded = _is_excluded_episode(submission, episode)
     result_class = "self-play" if excluded else _result_class(episode.winner)
     result_label = "SELF-PLAY (excluded)" if excluded else _winner_label(episode.winner)
+    margin = (
+        episode.score - episode.opponent_score
+        if episode.score is not None and episode.opponent_score is not None
+        else None
+    )
+    action_summary = _action_summary_html(episode)
     body = (
         f'<p><a href="../index.html">Back to submission</a></p>'
         f"<h1>Episode {escape(episode.episode_id)}</h1>"
@@ -353,9 +382,26 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
         f'</section><p class="result-line"><strong>Result:</strong> '
         f'<span class="result-badge {result_class}">{escape(result_label)}</span>'
         f" · turns: {episode.turns}</p>"
+        "<h2>Game summary</h2>"
+        '<section class="summary-grid replay-summary" aria-label="Game summary">'
+        f'<div class="summary-card ours"><span>Our agent</span>'
+        f'<strong class="summary-name">{escape(episode.our_agent_name or "-")}</strong></div>'
+        f'<div class="summary-card opponent"><span>Opponent</span>'
+        f'<strong class="summary-name">{escape(episode.opponent_agent_name or "-")}</strong></div>'
+        f'<div class="summary-card neutral"><span>Score margin</span>'
+        f"<strong>{escape(_display(margin))}</strong></div>"
+        f'<div class="summary-card ours"><span>Our market orders</span>'
+        f"<strong>{episode.our_market_orders}</strong></div>"
+        f'<div class="summary-card opponent"><span>Opponent market orders</span>'
+        f"<strong>{episode.opponent_market_orders}</strong></div>"
+        f'<div class="summary-card neutral"><span>Our errors</span>'
+        f"<strong>{len(episode.errors)}</strong></div>"
+        "</section>"
+        f"{action_summary}"
         f"<h2>Errors ({len(episode.errors)})</h2><ul>{error_rows}</ul>"
-        "<h2>Moves</h2><table><thead><tr><th>Turn</th><th>Action</th>"
-        f"<th>Error</th></tr></thead><tbody>{move_rows}</tbody></table>"
+        f"<details><summary>All moves ({len(episode.moves)} turns)</summary>"
+        "<table><thead><tr><th>Turn</th><th>Action</th>"
+        f"<th>Error</th></tr></thead><tbody>{move_rows}</tbody></table></details>"
     )
     return _page(f"Episode {episode.episode_id}", body, css_href="../../../assets/style.css")
 
@@ -458,6 +504,29 @@ def _percent(value: float | None) -> str:
     return "-" if value is None else f"{value:.1f}%"
 
 
+def _action_summary_html(episode: ReportEpisode) -> str:
+    return (
+        '<section class="action-grid" aria-label="Action summary">'
+        f"{_action_table('Our actions', episode.our_action_counts, 'ours')}"
+        f"{_action_table('Opponent actions', episode.opponent_action_counts, 'opponent')}"
+        "</section>"
+    )
+
+
+def _action_table(title: str, counts: tuple[tuple[str, int], ...], css_class: str) -> str:
+    if not counts:
+        rows = '<tr><td colspan="2">No actions recorded</td></tr>'
+    else:
+        rows = "".join(
+            f"<tr><td>{escape(label)}</td><td>{count}</td></tr>" for label, count in counts
+        )
+    return (
+        f'<div class="action-panel {css_class}"><h3>{escape(title)}</h3>'
+        "<table><thead><tr><th>Command</th><th>Count</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table></div>"
+    )
+
+
 def _page(title: str, body: str, *, css_href: str) -> str:
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
@@ -555,10 +624,53 @@ def _is_self_play_replay(replay: dict[str, Any] | None) -> bool:
     return len(names) >= 2 and len(set(names)) == 1
 
 
+def _replay_agents(replay: dict[str, Any]) -> list[Any]:
+    info = replay.get("info")
+    agents = info.get("Agents", []) if isinstance(info, dict) else []
+    return agents if isinstance(agents, list) else []
+
+
+def _action_counts(
+    steps: list[Any], agent_index: int | None
+) -> tuple[tuple[tuple[str, int], ...], int]:
+    if agent_index is None:
+        return (), 0
+    counts: Counter[str] = Counter()
+    market_orders = 0
+    for step in steps:
+        if not isinstance(step, list) or agent_index >= len(step):
+            continue
+        record = step[agent_index] if isinstance(step[agent_index], dict) else {}
+        action = record.get("action")
+        if not isinstance(action, dict):
+            continue
+        _count_action_values(counts, action.get("farmer"), "farmer")
+        _count_action_values(counts, action.get("hands"), "hands")
+        market = action.get("market")
+        if isinstance(market, list):
+            market_orders += len(market)
+            _count_action_values(counts, market, "market")
+    ordered = tuple(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+    return ordered, market_orders
+
+
+def _count_action_values(counts: Counter[str], values: Any, category: str) -> None:
+    if not isinstance(values, list):
+        return
+    for value in values:
+        label = _action_label(value)
+        if label:
+            counts[f"{category}: {label}"] += 1
+
+
+def _action_label(value: Any) -> str | None:
+    if isinstance(value, list) and value:
+        return _text(value[0])
+    return _text(value) if isinstance(value, str) else None
+
+
 def _agent_index(replay: dict[str, Any], agent_name: str | None = None) -> int:
-    agents = (
-        replay.get("info", {}).get("Agents", []) if isinstance(replay.get("info"), dict) else []
-    )
+    agents = _replay_agents(replay)
     if agent_name:
         normalized = agent_name.strip().casefold()
         for index, agent in enumerate(agents):
@@ -665,6 +777,13 @@ border-radius:.35rem;padding:.8rem 1rem}
 .summary-card span,.score-card span{display:block;font-size:.82rem;font-weight:700;
 letter-spacing:.04em;text-transform:uppercase;color:#536273}
 .summary-card strong{display:block;font-size:1.65rem;margin-top:.2rem}
+.summary-card strong.summary-name{font-size:1rem;overflow-wrap:anywhere}
+.action-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1rem}
+.action-panel{background:#fff;border:1px solid #d9dee7;border-radius:.35rem;padding:.25rem .75rem}
+.action-panel.ours{border-top:4px solid #198754}.action-panel.opponent{border-top:4px solid #dc3545}
+.action-panel h3{margin:.65rem 0;color:#16324f}.action-panel table{margin:.5rem 0}
+details{margin:1rem 0;background:#fff;border:1px solid #d9dee7;border-radius:.35rem;padding:.75rem}
+summary{cursor:pointer;font-weight:700;color:#16324f}
 .summary-card.ours,.score-card.ours{border-color:#198754;background:#edf8f1}
 .summary-card.opponent,.score-card.opponent{border-color:#dc3545;background:#fff0f1}
 .summary-card.tie{border-color:#0d6efd;background:#eef5ff}
