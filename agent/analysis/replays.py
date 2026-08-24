@@ -7,6 +7,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from agent.analysis.action_metrics import inferred_fallback, summarize_turns
+
 LEADER_NAME = "Ryo Hasegawa"
 ECONOMIC_ORDERS = {"BUY_ANIMAL", "BUY_LAND", "BUY_PRODUCT", "BUY_SEED", "HIRE", "SELL"}
 WORK_OPS = {"CARE", "COLLECT_FERTILIZER", "FEED", "FERTILIZE", "HARVEST", "PLANT", "WATER"}
@@ -19,6 +21,7 @@ def audit_replays(paths: list[Path], *, leader_name: str = LEADER_NAME) -> dict[
         "schema_version": 1,
         "leader_name": leader_name,
         "episodes": episodes,
+        "metrics": _aggregate_metrics(episodes),
         "cross_replay_patterns": _patterns(episodes),
     }
 
@@ -32,6 +35,7 @@ def audit_replay(path: Path, *, leader_name: str = LEADER_NAME) -> dict[str, Any
     player = names.index(leader_name) if leader_name in names else 0
     rewards = replay.get("rewards", [])
     daily: dict[int, dict[str, Any]] = {}
+    turn_evidence: list[dict[str, Any]] = []
     for step in replay.get("steps", []):
         if not isinstance(step, list) or player >= len(step) or not isinstance(step[player], dict):
             continue
@@ -42,6 +46,22 @@ def audit_replay(path: Path, *, leader_name: str = LEADER_NAME) -> dict[str, Any
         day = _integer(observation.get("day"))
         entry = daily.setdefault(day, _daily_snapshot(observation, player))
         _record_actions(entry, record.get("action"))
+        action = record.get("action")
+        fallback = inferred_fallback(action, record)
+        action_sent = (
+            action if isinstance(action, dict) else {"farmer": ["PASS"], "hands": [], "market": []}
+        )
+        snapshot = _turn_snapshot(observation, player)
+        turn_evidence.append(
+            {
+                "turn": len(turn_evidence),
+                "action": action_sent,
+                "action_sent": action_sent,
+                "action_raw": action,
+                "observation_before": snapshot,
+                "fallback_reason": "inferred replay fallback" if fallback else None,
+            }
+        )
         snapshot = _daily_snapshot(observation, player)
         for key in ("money", "hands", "quadrants", "animals", "crops"):
             entry[key] = snapshot[key]
@@ -65,6 +85,7 @@ def audit_replay(path: Path, *, leader_name: str = LEADER_NAME) -> dict[str, Any
             "opponent": {"player": opponent_player, "days": opponent_days},
         },
         "final": final,
+        "metrics": summarize_turns(turn_evidence),
     }
 
 
@@ -84,6 +105,42 @@ def _audit_player_days(replay: dict[str, Any], player: int) -> list[dict[str, An
         for key in ("money", "hands", "quadrants", "animals", "crops"):
             entry[key] = snapshot[key]
     return [_serialise_day(daily[day]) for day in sorted(daily)]
+
+
+def _aggregate_metrics(episodes: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate replay-level evidence for a submission/report batch."""
+    classes: Counter[str] = Counter()
+    heatmap: dict[str, Counter[str]] = {}
+    fallbacks = lost_actions = 0
+    longest = 0
+    for episode in episodes:
+        metrics = episode.get("metrics", {})
+        if not isinstance(metrics, dict):
+            continue
+        classes.update(metrics.get("turn_classes", {}))
+        fallbacks += _integer(metrics.get("fallbacks_inferred"))
+        lost_actions += _integer(metrics.get("lost_actions"))
+        longest = max(longest, _integer(metrics.get("longest_pass_streak")))
+        for cell, counts in metrics.get("heatmap", {}).items():
+            if isinstance(counts, dict):
+                heatmap.setdefault(cell, Counter()).update(counts)
+    total = sum(classes.values())
+    serialized = {cell: dict(counts) for cell, counts in sorted(heatmap.items())}
+    return {
+        "turn_classes": dict(classes),
+        "idle_turns": classes["idle_pass"],
+        "idle_turn_percentage": classes["idle_pass"] / total * 100 if total else 0.0,
+        "pass_turns": sum(
+            classes[name] for name in ("legitimate_wait", "idle_pass", "fallback_pass")
+        ),
+        "legitimate_wait_turns": classes["legitimate_wait"],
+        "fallback_pass_turns": classes["fallback_pass"],
+        "fallbacks_inferred": fallbacks,
+        "lost_actions": lost_actions,
+        "longest_pass_streak": longest,
+        "pass_heatmap": serialized,
+        "heatmap": serialized,
+    }
 
 
 def write_audit(report: dict[str, Any], output: Path) -> tuple[Path, Path]:
@@ -120,6 +177,65 @@ def _daily_snapshot(observation: dict[str, Any], player: int) -> dict[str, Any]:
         "order_units": Counter(),
         "work": Counter(),
     }
+
+
+def _turn_snapshot(observation: dict[str, Any], player: int) -> dict[str, Any]:
+    """Normalize only the chain signals needed by action classification."""
+    snapshot = _daily_snapshot(observation, player)
+    farms = observation.get("farms", [])
+    farm = farms[player] if isinstance(farms, list) and player < len(farms) else {}
+    farm = farm if isinstance(farm, dict) else {}
+    tiles = [tile for row in farm.get("tiles", []) if isinstance(row, list) for tile in row]
+    snapshot.update(
+        {
+            "hour": _integer(observation.get("hour")),
+            "animal_count": sum(
+                1 for tile in tiles if isinstance(tile, dict) and tile.get("animal")
+            ),
+            "crop_count": sum(
+                1 for tile in tiles if isinstance(tile, dict) and tile.get("kind") == "PLANT"
+            ),
+            "hungry_animals": sum(
+                1
+                for tile in tiles
+                if isinstance(tile, dict) and tile.get("animal") and not tile.get("fed_today")
+            ),
+            "irrigation_pending": sum(
+                1
+                for tile in tiles
+                if isinstance(tile, dict)
+                and tile.get("kind") == "PLANT"
+                and not tile.get("watered_today")
+            ),
+            "mature_crops": sum(
+                1
+                for tile in tiles
+                if isinstance(tile, dict)
+                and tile.get("kind") == "PLANT"
+                and _integer(tile.get("yield_units")) > 0
+            ),
+            "fertilizer_pending": sum(
+                1 for tile in tiles if isinstance(tile, dict) and tile.get("fertilizer_available")
+            ),
+            "inventory_units": 0,
+            "feed_deficit": 0,
+        }
+    )
+    private_raw = observation.get("private")
+    private = private_raw if isinstance(private_raw, dict) else {}
+    inventories = private.get("inventories", [])
+    if isinstance(inventories, list):
+        snapshot["inventory_units"] = sum(
+            sum(_integer(value) for value in inventory.values())
+            for inventory in inventories
+            if isinstance(inventory, dict)
+        )
+    shed = private.get("shed", {}) if isinstance(private.get("shed"), dict) else {}
+    animal_total = (
+        sum(snapshot["animals"].values()) if isinstance(snapshot["animals"], Counter) else 0
+    )
+    snapshot["feed_deficit"] = max(0, animal_total - _integer(shed.get("WHEAT")))
+    return snapshot
 
 
 def _record_actions(entry: dict[str, Any], action: Any) -> None:
@@ -198,6 +314,11 @@ def _markdown(report: dict[str, Any]) -> str:
                 "",
                 f"Seed {episode['seed']} · score {episode['leader_score']:.0f} "
                 f"vs {episode['opponent_score']:.0f}",
+                "",
+                f"Idle PASS {episode.get('metrics', {}).get('idle_turn_percentage', 0):.1f}% · "
+                f"longest PASS streak {episode.get('metrics', {}).get('longest_pass_streak', 0)} · "
+                f"fallbacks {episode.get('metrics', {}).get('fallbacks_inferred', 0)} · "
+                f"lost actions {episode.get('metrics', {}).get('lost_actions', 0)}",
                 "",
             ]
         )
