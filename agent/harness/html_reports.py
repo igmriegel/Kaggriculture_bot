@@ -40,7 +40,7 @@ class ReportSubmission:
     description: str | None = None
     episodes: list[ReportEpisode] = field(default_factory=list)
     source: str | None = None
-    exclude_first_episode: bool = False
+    excluded_episode_ids: frozenset[str] = frozenset()
 
 
 def load_local_sources(root: Path) -> list[ReportSubmission]:
@@ -108,7 +108,6 @@ def load_remote_submission(
         submitted_at=_text(submission.get("submittedAt") or submission.get("submitted_at")),
         description=_text(submission.get("description") or submission.get("fileName")),
         source=str(raw_root),
-        exclude_first_episode=True,
     )
     replay_cache: dict[str, dict[str, Any] | None] = {}
     for metadata in episodes:
@@ -119,6 +118,7 @@ def load_remote_submission(
             ("replay.json", "replay*.json", "*-replay.json"),
         )
     selected_agent_name = agent_name or _infer_agent_name(replay_cache.values())
+    result.excluded_episode_ids = _self_play_episode_ids(replay_cache)
     for metadata in episodes:
         episode_id = _identifier(metadata, "episode")
         episode_root = raw_root / _slug(episode_id)
@@ -400,27 +400,28 @@ def _index_html(submissions: list[ReportSubmission]) -> str:
 
 
 def _counted_episodes(submission: ReportSubmission) -> list[ReportEpisode]:
-    if not submission.exclude_first_episode or not submission.episodes:
+    if not submission.excluded_episode_ids:
         return list(submission.episodes)
-    excluded_id = submission.episodes[0].episode_id
-    return [episode for episode in submission.episodes if episode.episode_id != excluded_id]
+    return [
+        episode
+        for episode in submission.episodes
+        if episode.episode_id not in submission.excluded_episode_ids
+    ]
 
 
 def _is_excluded_episode(submission: ReportSubmission, episode: ReportEpisode) -> bool:
-    return bool(
-        submission.exclude_first_episode
-        and submission.episodes
-        and episode.episode_id == submission.episodes[0].episode_id
-    )
+    return episode.episode_id in submission.excluded_episode_ids
 
 
 def _excluded_note(submission: ReportSubmission) -> str:
-    if not submission.exclude_first_episode or not submission.episodes:
+    if not submission.excluded_episode_ids:
         return ""
-    episode_id = escape(submission.episodes[0].episode_id)
+    episode_ids = ", ".join(
+        escape(episode_id) for episode_id in sorted(submission.excluded_episode_ids)
+    )
     return (
         '<p class="notice self-play-note"><strong>Excluded from summary:</strong> '
-        f"first replay ({episode_id}) is self-play against our own agent.</p>"
+        f"self-play replay(s) ({episode_ids}) are against our own agent.</p>"
     )
 
 
@@ -532,6 +533,26 @@ def _infer_agent_name(replays: Iterable[dict[str, Any] | None]) -> str | None:
         names = {name for agent in agents if (name := _agent_display_name(agent)) is not None}
         counts.update(names)
     return counts.most_common(1)[0][0] if counts else None
+
+
+def _self_play_episode_ids(
+    replays: dict[str, dict[str, Any] | None],
+) -> frozenset[str]:
+    return frozenset(
+        episode_id for episode_id, replay in replays.items() if _is_self_play_replay(replay)
+    )
+
+
+def _is_self_play_replay(replay: dict[str, Any] | None) -> bool:
+    if not isinstance(replay, dict):
+        return False
+    info = replay.get("info")
+    agents = info.get("Agents", []) if isinstance(info, dict) else []
+    if not isinstance(agents, list):
+        return False
+    names = [_agent_display_name(agent) for agent in agents]
+    names = [name for name in names if name is not None]
+    return len(names) >= 2 and len(set(names)) == 1
 
 
 def _agent_index(replay: dict[str, Any], agent_name: str | None = None) -> int:

@@ -64,7 +64,7 @@ def test_remote_loader_infers_repeated_agent_name(tmp_path) -> None:
     raw_root = tmp_path / "raw"
     episodes = [{"id": "ep-a"}, {"id": "ep-b"}]
     for episode_id, agents, rewards in [
-        ("ep-a", ["Our Agent", "Opponent A"], [200, 100]),
+        ("ep-a", ["Our Agent", "Our Agent"], [200, 200]),
         ("ep-b", ["Opponent B", "Our Agent"], [50, 300]),
     ]:
         episode_root = raw_root / episode_id
@@ -83,7 +83,8 @@ def test_remote_loader_infers_repeated_agent_name(tmp_path) -> None:
     report = load_remote_submission({"id": "submission-1"}, episodes, raw_root)
 
     assert [episode.score for episode in report.episodes] == [200, 300]
-    assert [episode.winner for episode in report.episodes] == ["submission", "submission"]
+    assert [episode.winner for episode in report.episodes] == ["tie", "submission"]
+    assert report.excluded_episode_ids == frozenset({"ep-a"})
 
 
 def test_local_artifacts_render_submission_and_episode_pages(tmp_path) -> None:
@@ -123,7 +124,7 @@ def test_remote_submission_summary_excludes_first_self_play_replay(tmp_path) -> 
     submission = ReportSubmission(
         submission_id="remote-1",
         status="complete",
-        exclude_first_episode=True,
+        excluded_episode_ids=frozenset({"ep-0"}),
         episodes=[
             ReportEpisode("ep-0", 100, 100, "complete", "tie", 1),
             ReportEpisode("ep-1", 200, 50, "complete", "submission", 1),

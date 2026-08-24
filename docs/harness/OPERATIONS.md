@@ -42,10 +42,10 @@ from the authenticated Kaggle CLI, downloads each submission's episodes,
 replays, and agent logs, and writes a static dashboard to `reports/index.html`.
 Each submission has its own `submissions/<id>/index.html`, with a win/tie/loss
 summary and linked episode pages comparing **Our submission** against
-**Opponent**, including scores, actions, and errors or fallbacks. The first
-replay of a remote submission is shown as self-play and excluded from summary
-counts and averages. Raw downloads are cached beside the HTML so later runs are
-incremental. Use `make reports-local` without network access and
+**Opponent**, including scores, actions, and errors or fallbacks. Replays where
+both agent slots have our own name are shown as self-play and excluded from
+summary counts and averages. Raw downloads are cached beside the HTML so later
+runs are incremental. Use `make reports-local` without network access and
 `make reports-download` to refresh only the remote cache.
 The updater infers our agent from the name repeated across the submission's
 replays; set `AGENT_NAME="Display Name"` when a competition has a fixed or
