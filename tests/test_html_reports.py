@@ -1,6 +1,8 @@
 import json
 
 from agent.harness.html_reports import (
+    ReportEpisode,
+    ReportSubmission,
     episode_from_replay,
     load_local_sources,
     render_reports,
@@ -63,3 +65,32 @@ def test_local_artifacts_render_submission_and_episode_pages(tmp_path) -> None:
     html = episode_page.read_text(encoding="utf-8")
     assert "WATER" in html and "HARVEST" in html and "boom" in html
     assert "../../../assets/style.css" in html
+
+
+def test_remote_submission_summary_excludes_first_self_play_replay(tmp_path) -> None:
+    submission = ReportSubmission(
+        submission_id="remote-1",
+        status="complete",
+        exclude_first_episode=True,
+        episodes=[
+            ReportEpisode("ep-0", 100, 100, "complete", "tie", 1),
+            ReportEpisode("ep-1", 200, 50, "complete", "submission", 1),
+            ReportEpisode("ep-2", 10, 50, "complete", "opponent", 1),
+        ],
+    )
+    output = tmp_path / "reports"
+    render_reports([submission], output)
+
+    page = (output / "submissions" / "remote-1" / "index.html").read_text(encoding="utf-8")
+    assert "Our wins</span><strong>1" in page
+    assert "Ties</span><strong>0" in page
+    assert "Opponent wins</span><strong>1" in page
+    assert "Record (our wins–ties–opponent wins):</strong> 1–0–1" in page
+    assert "SELF-PLAY (excluded)" in page
+    assert "Our submission" in page and "Opponent" in page
+
+    episode = (output / "submissions" / "remote-1" / "episodes" / "ep-1.html").read_text(
+        encoding="utf-8"
+    )
+    assert "OUR WIN" in episode
+    assert "score comparison" in episode

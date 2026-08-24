@@ -40,11 +40,13 @@ versioned turn record per line. Do not place reports in a submission package.
 `make reports` processes `reports/local/` when present, discovers submissions
 from the authenticated Kaggle CLI, downloads each submission's episodes,
 replays, and agent logs, and writes a static dashboard to `reports/index.html`.
-Each submission has its own `submissions/<id>/index.html`, with linked episode
-pages listing scores, actions, and errors or fallbacks. Raw downloads are
-cached beside the HTML so later runs are incremental. Use `make reports-local`
-without network access and `make reports-download` to refresh only the remote
-cache.
+Each submission has its own `submissions/<id>/index.html`, with a win/tie/loss
+summary and linked episode pages comparing **Our submission** against
+**Opponent**, including scores, actions, and errors or fallbacks. The first
+replay of a remote submission is shown as self-play and excluded from summary
+counts and averages. Raw downloads are cached beside the HTML so later runs are
+incremental. Use `make reports-local` without network access and
+`make reports-download` to refresh only the remote cache.
 
 The target returns a non-zero status when remote authentication, metadata, or
 replay download fails, but keeps previous files and renders available

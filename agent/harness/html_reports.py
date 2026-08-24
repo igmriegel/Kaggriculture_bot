@@ -39,6 +39,7 @@ class ReportSubmission:
     description: str | None = None
     episodes: list[ReportEpisode] = field(default_factory=list)
     source: str | None = None
+    exclude_first_episode: bool = False
 
 
 def load_local_sources(root: Path) -> list[ReportSubmission]:
@@ -103,6 +104,7 @@ def load_remote_submission(
         submitted_at=_text(submission.get("submittedAt") or submission.get("submitted_at")),
         description=_text(submission.get("description") or submission.get("fileName")),
         source=str(raw_root),
+        exclude_first_episode=True,
     )
     for metadata in episodes:
         episode_id = _identifier(metadata, "episode")
@@ -250,18 +252,47 @@ def _local_moves(data: dict[str, Any], episode_root: Path) -> list[ReportMove]:
 
 
 def _submission_html(submission: ReportSubmission) -> str:
+    episodes = sorted(
+        submission.episodes,
+        key=lambda item: (not _is_excluded_episode(submission, item), item.episode_id),
+    )
+    counted_episodes = _counted_episodes(submission)
+    counts = _outcome_counts(counted_episodes)
+    scored = [episode for episode in counted_episodes if episode.score is not None]
+    opponent_scored = [
+        episode for episode in counted_episodes if episode.opponent_score is not None
+    ]
+    decided = counts["submission"] + counts["opponent"] + counts["tie"]
+    win_rate = counts["submission"] / decided * 100 if decided else None
     rows = []
-    for episode in sorted(submission.episodes, key=lambda item: item.episode_id):
+    for episode in episodes:
         href = f"episodes/{_slug(episode.episode_id)}.html"
+        excluded = _is_excluded_episode(submission, episode)
+        result_class = "self-play" if excluded else _result_class(episode.winner)
+        result_label = "SELF-PLAY (excluded)" if excluded else _winner_label(episode.winner)
         rows.append(
-            "<tr>"
+            f'<tr class="{result_class}">'
             f'<td><a href="{escape(href)}">{escape(episode.episode_id)}</a></td>'
             f"<td>{escape(_display(episode.score))}</td>"
             f"<td>{escape(_display(episode.opponent_score))}</td>"
-            f"<td>{escape(episode.status)}</td><td>{escape(episode.winner or '-')}</td>"
+            f'<td><span class="result-badge {result_class}">{escape(result_label)}</span></td>'
+            f"<td>{escape(episode.status)}</td>"
             f"<td>{episode.turns}</td><td>{len(episode.errors)}</td></tr>"
         )
     episode_rows = "".join(rows) or '<tr><td colspan="7">No episodes found</td></tr>'
+    summary = (
+        '<section class="summary-grid" aria-label="Submission summary">'
+        f'<div class="summary-card ours"><span>Our wins</span>'
+        f"<strong>{counts['submission']}</strong></div>"
+        f'<div class="summary-card tie"><span>Ties</span><strong>{counts["tie"]}</strong></div>'
+        f'<div class="summary-card opponent"><span>Opponent wins</span>'
+        f"<strong>{counts['opponent']}</strong></div>"
+        f'<div class="summary-card neutral"><span>Undecided</span>'
+        f"<strong>{counts['unknown']}</strong></div>"
+        f'<div class="summary-card neutral"><span>Our win rate</span>'
+        f"<strong>{escape(_percent(win_rate))}</strong></div>"
+        "</section>"
+    )
     return _page(
         f"Submission {submission.submission_id}",
         f'<p><a href="../../index.html">All submissions</a></p>'
@@ -269,8 +300,14 @@ def _submission_html(submission: ReportSubmission) -> str:
         f"<p>{escape(submission.description or '')}</p>"
         f"<p>Status: <strong>{escape(submission.status)}</strong>"
         f" · submitted: {escape(submission.submitted_at or '-')}</p>"
-        "<table><thead><tr><th>Episode</th><th>Score</th><th>Opponent</th>"
-        "<th>Status</th><th>Winner</th><th>Turns</th><th>Errors</th></tr></thead>"
+        f"{_excluded_note(submission)}"
+        f"{summary}"
+        f'<p class="record"><strong>Record (our wins–ties–opponent wins):</strong> '
+        f"{counts['submission']}–{counts['tie']}–{counts['opponent']} "
+        f"· our average: {_display(_average(scored, 'score'))} "
+        f"· opponent average: {_display(_average(opponent_scored, 'opponent_score'))}</p>"
+        "<table><thead><tr><th>Episode</th><th>Our submission</th><th>Opponent</th>"
+        "<th>Result</th><th>Status</th><th>Turns</th><th>Errors</th></tr></thead>"
         f"<tbody>{episode_rows}</tbody></table>",
         css_href="../../assets/style.css",
     )
@@ -287,14 +324,22 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
         )
     move_rows = "".join(moves) or '<tr><td colspan="3">No moves recorded</td></tr>'
     error_rows = errors or "<li>None recorded</li>"
+    excluded = _is_excluded_episode(submission, episode)
+    result_class = "self-play" if excluded else _result_class(episode.winner)
+    result_label = "SELF-PLAY (excluded)" if excluded else _winner_label(episode.winner)
     body = (
         f'<p><a href="../index.html">Back to submission</a></p>'
         f"<h1>Episode {escape(episode.episode_id)}</h1>"
         f"<p>Submission: <strong>{escape(submission.submission_id)}</strong>"
-        f" · status: <strong>{escape(episode.status)}</strong>"
-        f" · winner: {escape(episode.winner or '-')}</p>"
-        f"<p>Score: <strong>{escape(_display(episode.score))}</strong>"
-        f" · opponent: {escape(_display(episode.opponent_score))}"
+        f" · status: <strong>{escape(episode.status)}</strong></p>"
+        f'<section class="scoreboard {result_class}" aria-label="Episode score comparison">'
+        f'<div class="score-card ours"><span>Our submission</span>'
+        f"<strong>{escape(_display(episode.score))}</strong></div>"
+        '<div class="versus" aria-hidden="true">vs</div>'
+        f'<div class="score-card opponent"><span>Opponent</span>'
+        f"<strong>{escape(_display(episode.opponent_score))}</strong></div>"
+        f'</section><p class="result-line"><strong>Result:</strong> '
+        f'<span class="result-badge {result_class}">{escape(result_label)}</span>'
         f" · turns: {episode.turns}</p>"
         f"<h2>Errors ({len(episode.errors)})</h2><ul>{error_rows}</ul>"
         "<h2>Moves</h2><table><thead><tr><th>Turn</th><th>Action</th>"
@@ -307,26 +352,97 @@ def _index_html(submissions: list[ReportSubmission]) -> str:
     rows = []
     for submission in submissions:
         episodes = submission.episodes
-        scores = [episode.score for episode in episodes if episode.score is not None]
+        counted_episodes = _counted_episodes(submission)
+        scores = [episode.score for episode in counted_episodes if episode.score is not None]
+        opponent_scores = [
+            episode.opponent_score
+            for episode in counted_episodes
+            if episode.opponent_score is not None
+        ]
+        counts = _outcome_counts(counted_episodes)
+        our_average = sum(scores) / len(scores) if scores else None
+        opponent_average = sum(opponent_scores) / len(opponent_scores) if opponent_scores else None
         errors = sum(len(episode.errors) for episode in episodes)
         href = f"submissions/{_slug(submission.submission_id)}/index.html"
         rows.append(
             "<tr>"
             f'<td><a href="{escape(href)}">{escape(submission.submission_id)}</a></td>'
             f"<td>{escape(submission.status)}</td><td>{len(episodes)}</td>"
-            f"<td>{escape(_display(sum(scores) / len(scores) if scores else None))}</td>"
-            f"<td>{escape(_display(max(scores) if scores else None))}</td><td>{errors}</td></tr>"
+            f'<td><span class="record-badge">'
+            f"{counts['submission']}–{counts['tie']}–{counts['opponent']}"
+            "</span></td>"
+            f"<td>{escape(_display(our_average))}</td>"
+            f"<td>{escape(_display(opponent_average))}</td>"
+            f"<td>{errors}</td></tr>"
         )
-    submission_rows = "".join(rows) or '<tr><td colspan="6">No submissions found</td></tr>'
+    submission_rows = "".join(rows) or '<tr><td colspan="7">No submissions found</td></tr>'
     return _page(
         "Submission reports",
         "<h1>Submission reports</h1>"
         "<p>Generated from cached Kaggle and local harness evidence.</p>"
         "<table><thead><tr><th>Submission</th><th>Status</th><th>Episodes</th>"
-        "<th>Average score</th><th>Best score</th><th>Errors</th></tr></thead>"
+        "<th>Record W–T–L</th><th>Our avg</th><th>Opponent avg</th><th>Errors</th></tr></thead>"
         f"<tbody>{submission_rows}</tbody></table>",
         css_href="assets/style.css",
     )
+
+
+def _counted_episodes(submission: ReportSubmission) -> list[ReportEpisode]:
+    if not submission.exclude_first_episode or not submission.episodes:
+        return list(submission.episodes)
+    excluded_id = submission.episodes[0].episode_id
+    return [episode for episode in submission.episodes if episode.episode_id != excluded_id]
+
+
+def _is_excluded_episode(submission: ReportSubmission, episode: ReportEpisode) -> bool:
+    return bool(
+        submission.exclude_first_episode
+        and submission.episodes
+        and episode.episode_id == submission.episodes[0].episode_id
+    )
+
+
+def _excluded_note(submission: ReportSubmission) -> str:
+    if not submission.exclude_first_episode or not submission.episodes:
+        return ""
+    episode_id = escape(submission.episodes[0].episode_id)
+    return (
+        '<p class="notice self-play-note"><strong>Excluded from summary:</strong> '
+        f"first replay ({episode_id}) is self-play against our own agent.</p>"
+    )
+
+
+def _outcome_counts(episodes: Iterable[ReportEpisode]) -> dict[str, int]:
+    counts = {"submission": 0, "tie": 0, "opponent": 0, "unknown": 0}
+    for episode in episodes:
+        outcome = episode.winner if episode.winner in counts else "unknown"
+        counts[outcome] += 1
+    return counts
+
+
+def _result_class(winner: str | None) -> str:
+    return {
+        "submission": "ours-win",
+        "opponent": "opponent-win",
+        "tie": "tie-result",
+    }.get(winner, "unknown-result")
+
+
+def _winner_label(winner: str | None) -> str:
+    return {
+        "submission": "OUR WIN",
+        "opponent": "OPPONENT WIN",
+        "tie": "TIE",
+    }.get(winner, "UNDECIDED")
+
+
+def _average(episodes: Iterable[ReportEpisode], field_name: str) -> float | None:
+    values = [getattr(episode, field_name) for episode in episodes]
+    return sum(values) / len(values) if values else None
+
+
+def _percent(value: float | None) -> str:
+    return "-" if value is None else f"{value:.1f}%"
 
 
 def _page(title: str, body: str, *, css_href: str) -> str:
@@ -483,6 +599,32 @@ table{border-collapse:collapse;width:100%;background:#fff;margin:1rem 0}
 th,td{border:1px solid #d9dee7;padding:.55rem;text-align:left;vertical-align:top}
 th{background:#eaf0f7}pre{white-space:pre-wrap;margin:0;max-width:58rem}
 a{color:#145da0}li{margin:.35rem 0}h1{color:#16324f}p{line-height:1.5}
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));
+gap:.75rem;margin:1.25rem 0}
+.summary-card{background:#fff;border:1px solid #d9dee7;border-left:5px solid #8b98a8;
+border-radius:.35rem;padding:.8rem 1rem}
+.summary-card span,.score-card span{display:block;font-size:.82rem;font-weight:700;
+letter-spacing:.04em;text-transform:uppercase;color:#536273}
+.summary-card strong{display:block;font-size:1.65rem;margin-top:.2rem}
+.summary-card.ours,.score-card.ours{border-color:#198754;background:#edf8f1}
+.summary-card.opponent,.score-card.opponent{border-color:#dc3545;background:#fff0f1}
+.summary-card.tie{border-color:#0d6efd;background:#eef5ff}
+.summary-card.neutral{border-color:#8b98a8}
+.record,.notice{background:#fff;border:1px solid #d9dee7;border-radius:.35rem;padding:.8rem 1rem}
+.notice.self-play-note{border-left:5px solid #6c757d;background:#f1f3f5}
+.scoreboard{display:flex;align-items:stretch;gap:.75rem;margin:1.25rem 0}
+.score-card{flex:1;border:2px solid #8b98a8;border-radius:.45rem;padding:1rem;
+text-align:center;background:#fff}
+.score-card strong{display:block;font-size:2rem;margin-top:.25rem}
+.versus{align-self:center;font-weight:800;color:#536273}
+.result-line{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap}
+.result-badge,.record-badge{display:inline-block;border-radius:999px;padding:.2rem .55rem;
+font-size:.75rem;font-weight:800;letter-spacing:.03em;white-space:nowrap}
+.result-badge.ours-win{background:#198754;color:#fff}.result-badge.opponent-win{background:#dc3545;color:#fff}
+.result-badge.tie-result{background:#0d6efd;color:#fff}.result-badge.unknown-result{background:#6c757d;color:#fff}
+.result-badge.self-play{background:#6c757d;color:#fff}
+tr.ours-win{background:#f2fbf5}tr.opponent-win{background:#fff7f7}tr.tie-result{background:#f5f9ff}
+tr.self-play{background:#f1f3f5;color:#536273}
 """
 
 

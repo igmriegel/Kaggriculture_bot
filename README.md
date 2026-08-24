@@ -20,7 +20,8 @@ boundary falls back to `PASS` rather than inventing a mechanic.
 - A typed action boundary with a final safety validator.
 - A strategy-agnostic episode runner with deterministic seeds and time limits.
 - JSON episode reports and optional JSONL decision traces.
-- Static HTML reports per submission, episode, score, move, and error.
+- Static HTML reports per submission, with win/tie/loss summaries, explicit
+  our-submission versus opponent scoring, and per-turn moves/errors.
 - Built-in PASS, deterministic-random, and self-play scenarios.
 - Six engines: a conservative baseline, `heuristic-v1`, `competitive`,
   `leader-inspired`, and the submission candidate `leader-v2`.
