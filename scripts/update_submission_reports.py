@@ -151,7 +151,11 @@ def _write_json(path: Path, value: Any) -> None:
 
 
 def _has_json(root: Path, stem: str) -> bool:
-    return any(path.is_file() for path in root.glob(f"{stem}*.json"))
+    return any(
+        path.is_file()
+        for pattern in (f"{stem}.json", f"{stem}*.json", f"*-{stem}.json")
+        for path in root.glob(pattern)
+    )
 
 
 def _has_log(root: Path, agent_index: int) -> bool:

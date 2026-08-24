@@ -107,7 +107,10 @@ def load_remote_submission(
     for metadata in episodes:
         episode_id = _identifier(metadata, "episode")
         episode_root = raw_root / _slug(episode_id)
-        replay = _first_json(episode_root, ("replay.json", "replay*.json"))
+        replay = _first_json(
+            episode_root,
+            ("replay.json", "replay*.json", "*-replay.json"),
+        )
         logs = _log_files(episode_root)
         if replay is None:
             result.episodes.append(

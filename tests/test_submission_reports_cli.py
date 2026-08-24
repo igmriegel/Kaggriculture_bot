@@ -46,7 +46,7 @@ def test_remote_update_caches_metadata_replay_and_logs(tmp_path, monkeypatch) ->
         target = tmp_path / "reports" / "submissions" / "submission-9" / "raw" / "episode-9"
         target.mkdir(parents=True, exist_ok=True)
         if "replay" in arguments:
-            (target / "replay.json").write_text(
+            (target / "episode-9-replay.json").write_text(
                 json.dumps(
                     {
                         "info": {"Agents": [{"Name": "submission"}, {"Name": "other"}]},
