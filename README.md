@@ -23,12 +23,10 @@ boundary falls back to `PASS` rather than inventing a mechanic.
 - Static HTML reports per submission, with win/tie/loss summaries, explicit
   our-submission versus opponent scoring, and per-turn moves/errors.
 - Built-in PASS, deterministic-random, and self-play scenarios.
-- Six engines: a conservative baseline, `heuristic-v1`, `competitive`,
-  `leader-inspired`, and the submission candidate `leader-v2`.
-The experimental `leader-v3` adds deterministic crop/animal portfolio
-planning, daily worker refresh handling, feed/stock reservations, and explicit
-recovery before expansion. Promotion still requires the multi-seed evidence
-gate.
+- Seven engines: a conservative baseline, `heuristic-v1`, `competitive`,
+  `leader-inspired`, `leader-v2`, `leader-v3`, and the high-performance `leader-v4`.
+`leader-v4` provides dynamic, market-driven crop scoring, livestock scaling,
+and workload-based Fibonacci hiring without hardcoded static gameplay.
 - A submission packager that produces a tarball with `main.py` at its root.
 - Unit tests and quality gates for the public harness and the V1 policy.
 
