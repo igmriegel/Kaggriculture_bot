@@ -111,3 +111,38 @@ def test_remote_failure_returns_error_without_discarding_local_report(
 
     assert result == 2
     assert (tmp_path / "reports" / "index.html").is_file()
+
+
+def test_remote_log_permission_failure_is_non_fatal(tmp_path, monkeypatch) -> None:
+    def fake_json(arguments: list[str]):
+        if "submissions" in arguments:
+            return [{"id": "submission-10", "status": "complete"}]
+        return [{"id": "episode-10", "status": "complete"}]
+
+    def fake_download(arguments: list[str]) -> None:
+        target = tmp_path / "reports" / "submissions" / "submission-10" / "raw" / "episode-10"
+        target.mkdir(parents=True, exist_ok=True)
+        if "replay" in arguments:
+            (target / "replay.json").write_text(
+                json.dumps({"rewards": [21, 9], "steps": [[{"action": {"farmer": ["PASS"]}}]]}),
+                encoding="utf-8",
+            )
+        else:
+            raise RuntimeError("403 Forbidden: GetEpisodeAgentLogs")
+
+    monkeypatch.setattr(updater, "_kaggle_json", fake_json)
+    monkeypatch.setattr(updater, "_download", fake_download)
+
+    assert (
+        main(
+            [
+                "--reports-dir",
+                str(tmp_path / "reports"),
+                "--competition",
+                "kaggriculture",
+                "--remote",
+            ]
+        )
+        == 0
+    )
+    assert (tmp_path / "reports" / "index.html").is_file()

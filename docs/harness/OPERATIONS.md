@@ -46,9 +46,11 @@ cached beside the HTML so later runs are incremental. Use `make reports-local`
 without network access and `make reports-download` to refresh only the remote
 cache.
 
-The target returns a non-zero status when remote authentication or download
-fails, but keeps previous files and renders available local/cache data. Override
-`COMPETITION`, `REPORTS_DIR`, or `LOCAL_REPORTS_DIR` for another layout.
+The target returns a non-zero status when remote authentication, metadata, or
+replay download fails, but keeps previous files and renders available
+local/cache data. Kaggle may deny the optional agent-log endpoint; in that case
+the update succeeds with a warning and the report marks no log-derived errors.
+Override `COMPETITION`, `REPORTS_DIR`, or `LOCAL_REPORTS_DIR` for another layout.
 
 The current official adapter uses a `PASS` opponent; `random` and self-play are
 integration-test targets once the optional native competition dependency is

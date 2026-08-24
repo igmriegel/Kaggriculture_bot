@@ -80,17 +80,27 @@ def _update_remote(competition: str, reports_dir: Path) -> list[ReportSubmission
                 )
             for agent_index in (0, 1):
                 if not _has_log(episode_dir, agent_index):
-                    _download(
-                        [
-                            "competitions",
-                            "logs",
-                            episode_id,
-                            str(agent_index),
-                            "--path",
-                            str(episode_dir),
-                            "--quiet",
-                        ]
-                    )
+                    try:
+                        _download(
+                            [
+                                "competitions",
+                                "logs",
+                                episode_id,
+                                str(agent_index),
+                                "--path",
+                                str(episode_dir),
+                                "--quiet",
+                            ]
+                        )
+                    except RuntimeError as exc:
+                        # Agent logs are useful diagnostics, but Kaggle may deny
+                        # this endpoint while still allowing submission metadata
+                        # and replays. Keep the report usable in that case.
+                        print(
+                            f"warning: agent {agent_index} logs unavailable for "
+                            f"{episode_id}: {exc}",
+                            file=sys.stderr,
+                        )
         submissions.append(load_remote_submission(submission, episodes, destination))
     return submissions
 
