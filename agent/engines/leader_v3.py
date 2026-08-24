@@ -120,10 +120,20 @@ class LeaderV3Engine(LeaderV2Engine):
     def _build_market_orders(
         self, state: NormalizedState, goals: tuple[ProductionGoal, ...], tasks: list[Task]
     ) -> list[list[Any]]:
-        budget = self._budget(state, tasks)
         orders = self._sales(state)
-        spending = max(0, state.money - budget.reserve - self.v3_config.operating_cash_floor)
+        spending = max(0, state.money - self._cash_reserve(state, tasks))
         if self._closing(state):
+            return orders[: self.v3_config.max_orders]
+
+        # A broken chain is a recovery phase, not an invitation to expand.  The
+        # allocator still feeds/collects/drops first; the market side sells
+        # surplus and restores the next ration before considering growth.
+        feed_needed = self._feed_need(state)
+        if self._recovery_required(state, feed_needed):
+            feed_price = max(1, int(state.prices.get("WHEAT", 25)))
+            quantity = min(feed_needed, spending // feed_price, self._market_stock(state, "WHEAT"))
+            if quantity:
+                orders.append(["BUY_PRODUCT", "WHEAT", int(quantity)])
             return orders[: self.v3_config.max_orders]
 
         animal_goal = next(goal.quantity for goal in goals if goal.name == "operational_animals")
@@ -135,7 +145,12 @@ class LeaderV3Engine(LeaderV2Engine):
             )
             feed_needed = max(0, self._animal_count(state) + 1 - feed)
             feed_price = int(state.prices.get("WHEAT", 25))
-            if spending >= _ANIMAL_COST[animal] + feed_needed * feed_price:
+            feed_stock = self._market_stock(state, "WHEAT")
+            if (
+                feed_needed <= feed_stock
+                and spending >= _ANIMAL_COST[animal] + feed_needed * feed_price
+            ):
+                feed_needed = min(feed_needed, feed_stock)
                 if feed_needed:
                     orders.append(["BUY_PRODUCT", "WHEAT", feed_needed])
                     spending -= feed_needed * feed_price
@@ -147,7 +162,11 @@ class LeaderV3Engine(LeaderV2Engine):
                 continue
             crop = goal.name.removeprefix("plant_").upper()
             shortfall = min(max(0, goal.quantity - state.seeds.get(crop, 0)), 6)
-            quantity = min(shortfall, spending // _V3_SEED_COST[crop])
+            quantity = min(
+                shortfall,
+                spending // _V3_SEED_COST[crop],
+                self._market_stock(state, crop),
+            )
             if quantity:
                 orders.append(["BUY_SEED", crop, int(quantity)])
                 spending -= int(quantity) * _V3_SEED_COST[crop]
@@ -156,13 +175,13 @@ class LeaderV3Engine(LeaderV2Engine):
         target = min(self.v3_config.max_hands, max(1, min(productive, 1 + productive // 8)))
         prospective = len(state.hand_positions)
         while (
-            state.hour == 1
+            state.hour in {0, 1}
             and productive > len(state.units()) + 2
             and prospective < target
             and len(orders) < self.v3_config.max_orders
         ):
             cost = self._hire_cost(state.hires_today + prospective - len(state.hand_positions))
-            if spending < cost + 250:
+            if spending < cost + self._next_day_reserve(state):
                 break
             orders.append(["HIRE"])
             spending -= cost
@@ -217,6 +236,40 @@ class LeaderV3Engine(LeaderV2Engine):
         if self._animal_capacity(state) <= self._pending_animals(state):
             return False
         return sum(state.shed.values()) < (state.shed_capacity - 2)
+
+    def _feed_need(self, state: NormalizedState) -> int:
+        owned = state.shed.get("WHEAT", 0) + sum(
+            inventory.get("WHEAT", 0) for inventory in state.unit_inventories
+        )
+        return max(0, self._animal_count(state) - owned)
+
+    def _next_day_reserve(self, state: NormalizedState) -> int:
+        return self._hire_cost(0) if self._animal_count(state) or self._empty_tiles(state) else 0
+
+    def _cash_reserve(self, state: NormalizedState, tasks: list[Task]) -> int:
+        feed = self._feed_need(state) * max(1, int(state.prices.get("WHEAT", 25)))
+        seed_minimum = _V3_SEED_COST.get(self._crop(state), 0) if self._empty_tiles(state) else 0
+        labor = self._next_day_reserve(state) if sum(task.priority < 10 for task in tasks) else 0
+        return (
+            self.v3_config.reserve_cash
+            + self.v3_config.operating_cash_floor
+            + feed
+            + labor
+            + seed_minimum
+        )
+
+    def _recovery_required(self, state: NormalizedState, feed_needed: int) -> bool:
+        return bool(
+            self._pending_animals(state)
+            or feed_needed
+            or state.money < self.v3_config.operating_cash_floor
+        )
+
+    @staticmethod
+    def _market_stock(state: NormalizedState, item: str) -> int:
+        if item not in state.market_inventory:
+            return 10**9
+        return max(0, state.market_inventory[item])
 
     def _land_has_return(self, state: NormalizedState, productive: int, spending: int) -> bool:
         if len(state.unlocked_quadrants) >= 3 or productive < max(2, len(state.units())):
