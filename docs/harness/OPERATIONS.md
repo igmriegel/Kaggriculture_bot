@@ -47,6 +47,9 @@ replay of a remote submission is shown as self-play and excluded from summary
 counts and averages. Raw downloads are cached beside the HTML so later runs are
 incremental. Use `make reports-local` without network access and
 `make reports-download` to refresh only the remote cache.
+The updater infers our agent from the name repeated across the submission's
+replays; set `AGENT_NAME="Display Name"` when a competition has a fixed or
+ambiguous opponent name.
 
 The target returns a non-zero status when remote authentication, metadata, or
 replay download fails, but keeps previous files and renders available

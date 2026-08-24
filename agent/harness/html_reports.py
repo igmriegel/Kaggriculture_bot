@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from html import escape
@@ -94,7 +95,10 @@ def load_local_sources(root: Path) -> list[ReportSubmission]:
 
 
 def load_remote_submission(
-    submission: dict[str, Any], episodes: list[dict[str, Any]], raw_root: Path
+    submission: dict[str, Any],
+    episodes: list[dict[str, Any]],
+    raw_root: Path,
+    agent_name: str | None = None,
 ) -> ReportSubmission:
     """Build a report model from cached Kaggle metadata and downloaded files."""
     submission_id = _identifier(submission, "submission")
@@ -106,13 +110,19 @@ def load_remote_submission(
         source=str(raw_root),
         exclude_first_episode=True,
     )
+    replay_cache: dict[str, dict[str, Any] | None] = {}
     for metadata in episodes:
         episode_id = _identifier(metadata, "episode")
         episode_root = raw_root / _slug(episode_id)
-        replay = _first_json(
+        replay_cache[episode_id] = _first_json(
             episode_root,
             ("replay.json", "replay*.json", "*-replay.json"),
         )
+    selected_agent_name = agent_name or _infer_agent_name(replay_cache.values())
+    for metadata in episodes:
+        episode_id = _identifier(metadata, "episode")
+        episode_root = raw_root / _slug(episode_id)
+        replay = replay_cache[episode_id]
         logs = _log_files(episode_root)
         if replay is None:
             result.episodes.append(
@@ -137,6 +147,7 @@ def load_remote_submission(
                 source=str(replay),
                 log_text="\n".join(_read_text(path) for path in logs),
                 metadata=metadata,
+                agent_name=selected_agent_name,
             )
         )
     return result
@@ -177,12 +188,13 @@ def episode_from_replay(
     source: str,
     log_text: str = "",
     metadata: dict[str, Any] | None = None,
+    agent_name: str | None = None,
 ) -> ReportEpisode:
     raw_steps = replay.get("steps")
     raw_rewards = replay.get("rewards")
     steps: list[Any] = raw_steps if isinstance(raw_steps, list) else []
     rewards: list[Any] = raw_rewards if isinstance(raw_rewards, list) else []
-    agent_index = _agent_index(replay)
+    agent_index = _agent_index(replay, agent_name)
     opponent_index = 1 - agent_index if len(rewards) > 1 else None
     moves: list[ReportMove] = []
     for turn, step in enumerate(steps):
@@ -508,14 +520,40 @@ def _identifier(data: dict[str, Any], prefix: str) -> str:
     return f"{prefix}-unknown"
 
 
-def _agent_index(replay: dict[str, Any]) -> int:
+def _infer_agent_name(replays: Iterable[dict[str, Any] | None]) -> str | None:
+    """Infer our agent from the name repeated across a submission's replays."""
+    counts: Counter[str] = Counter()
+    for replay in replays:
+        if not isinstance(replay, dict):
+            continue
+        agents = replay.get("info", {}).get("Agents", [])
+        if not isinstance(agents, list):
+            continue
+        names = {name for agent in agents if (name := _agent_display_name(agent)) is not None}
+        counts.update(names)
+    return counts.most_common(1)[0][0] if counts else None
+
+
+def _agent_index(replay: dict[str, Any], agent_name: str | None = None) -> int:
     agents = (
         replay.get("info", {}).get("Agents", []) if isinstance(replay.get("info"), dict) else []
     )
+    if agent_name:
+        normalized = agent_name.strip().casefold()
+        for index, agent in enumerate(agents):
+            if (name := _agent_display_name(agent)) is not None and name.casefold() == normalized:
+                return index
     for index, agent in enumerate(agents):
         if isinstance(agent, dict) and agent.get("Name") not in {None, "other", "opponent"}:
             return index
     return 0
+
+
+def _agent_display_name(agent: Any) -> str | None:
+    if not isinstance(agent, dict):
+        return None
+    name = _text(agent.get("Name"))
+    return name.strip() if name and name.strip() else None
 
 
 def _turn_error(record: dict[str, Any]) -> str | None:

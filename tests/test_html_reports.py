@@ -5,6 +5,7 @@ from agent.harness.html_reports import (
     ReportSubmission,
     episode_from_replay,
     load_local_sources,
+    load_remote_submission,
     render_reports,
 )
 
@@ -32,6 +33,57 @@ def test_replay_report_keeps_scores_moves_and_errors() -> None:
     assert episode.winner == "submission"
     assert [move.action["farmer"][0] for move in episode.moves] == ["WATER", "HARVEST"]
     assert episode.errors == ("illegal move",)
+
+
+def test_replay_report_uses_named_agent_when_agent_order_changes() -> None:
+    replay = {
+        "info": {
+            "Agents": [
+                {"Name": "opponent"},
+                {"Name": "Our Kaggle Agent"},
+            ]
+        },
+        "rewards": [900, 1234],
+        "steps": [[{"action": {"farmer": ["PASS"]}}, {"action": {"farmer": ["WATER"]}}]],
+    }
+
+    episode = episode_from_replay(
+        replay,
+        episode_id="ep-named",
+        source="replay.json",
+        agent_name="Our Kaggle Agent",
+    )
+
+    assert episode.score == 1234
+    assert episode.opponent_score == 900
+    assert episode.winner == "submission"
+    assert episode.moves[0].action["farmer"] == ["WATER"]
+
+
+def test_remote_loader_infers_repeated_agent_name(tmp_path) -> None:
+    raw_root = tmp_path / "raw"
+    episodes = [{"id": "ep-a"}, {"id": "ep-b"}]
+    for episode_id, agents, rewards in [
+        ("ep-a", ["Our Agent", "Opponent A"], [200, 100]),
+        ("ep-b", ["Opponent B", "Our Agent"], [50, 300]),
+    ]:
+        episode_root = raw_root / episode_id
+        episode_root.mkdir(parents=True)
+        (episode_root / f"episode-{episode_id}-replay.json").write_text(
+            json.dumps(
+                {
+                    "info": {"Agents": [{"Name": name} for name in agents]},
+                    "rewards": rewards,
+                    "steps": [[{}, {}]],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    report = load_remote_submission({"id": "submission-1"}, episodes, raw_root)
+
+    assert [episode.score for episode in report.episodes] == [200, 300]
+    assert [episode.winner for episode in report.episodes] == ["submission", "submission"]
 
 
 def test_local_artifacts_render_submission_and_episode_pages(tmp_path) -> None:

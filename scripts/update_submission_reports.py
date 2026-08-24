@@ -28,6 +28,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reports-dir", type=Path, default=Path("reports"))
     parser.add_argument("--local-root", type=Path, action="append", default=[])
     parser.add_argument("--competition", default="kaggriculture")
+    parser.add_argument(
+        "--agent-name",
+        default=None,
+        help="Display name of our Kaggle agent; inferred from repeated replay names by default",
+    )
     parser.add_argument("--remote", action="store_true")
     parser.add_argument("--download-only", action="store_true")
     args = parser.parse_args(argv)
@@ -39,11 +44,11 @@ def main(argv: list[str] | None = None) -> int:
     remote_error: Exception | None = None
     if args.remote:
         try:
-            sources.extend(_update_remote(args.competition, args.reports_dir))
+            sources.extend(_update_remote(args.competition, args.reports_dir, args.agent_name))
         except (OSError, RuntimeError, ValueError) as exc:
             remote_error = exc
             print(f"remote report update failed: {exc}", file=sys.stderr)
-            sources.extend(_load_cached_remote(args.reports_dir))
+            sources.extend(_load_cached_remote(args.reports_dir, args.agent_name))
 
     if not args.download_only:
         if not sources:
@@ -54,7 +59,9 @@ def main(argv: list[str] | None = None) -> int:
     return 2 if remote_error is not None else 0
 
 
-def _update_remote(competition: str, reports_dir: Path) -> list[ReportSubmission]:
+def _update_remote(
+    competition: str, reports_dir: Path, agent_name: str | None = None
+) -> list[ReportSubmission]:
     raw_root = reports_dir / "submissions"
     listing = _kaggle_json(
         ["competitions", "submissions", competition, "--format", "json", "--quiet"]
@@ -110,17 +117,19 @@ def _update_remote(competition: str, reports_dir: Path) -> list[ReportSubmission
                                 )
                                 logs_warning_shown = True
                             break
-        submissions.append(load_remote_submission(submission, episodes, destination))
+        submissions.append(load_remote_submission(submission, episodes, destination, agent_name))
     return submissions
 
 
-def _load_cached_remote(reports_dir: Path) -> list[ReportSubmission]:
+def _load_cached_remote(reports_dir: Path, agent_name: str | None = None) -> list[ReportSubmission]:
     result: list[ReportSubmission] = []
     for raw_root in sorted((reports_dir / "submissions").glob("*/raw")):
         submission = _read_json(raw_root / "submission.json")
         episodes_data = _read_json(raw_root / "episodes.json")
         if isinstance(submission, dict):
-            result.append(load_remote_submission(submission, _records(episodes_data), raw_root))
+            result.append(
+                load_remote_submission(submission, _records(episodes_data), raw_root, agent_name)
+            )
     return result
 
 
