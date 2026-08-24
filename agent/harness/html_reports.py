@@ -11,12 +11,15 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
+from agent.analysis.action_metrics import classify_action, inferred_fallback, summarize_turns
+
 
 @dataclass(frozen=True)
 class ReportMove:
     turn: int
     action: Any
     error: str | None = None
+    action_class: str = "idle_pass"
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,7 @@ class ReportEpisode:
     opponent_action_counts: tuple[tuple[str, int], ...] = ()
     our_market_orders: int = 0
     opponent_market_orders: int = 0
+    metrics: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -184,6 +188,7 @@ def episode_from_local(data: Any, episode_root: Path) -> ReportEpisode | None:
         errors=tuple(dict.fromkeys(errors)),
         moves=tuple(moves),
         source=str(episode_root / "episode.json"),
+        metrics=_local_metrics(data, moves),
     )
 
 
@@ -214,13 +219,33 @@ def episode_from_replay(
         _action_counts(steps, opponent_index) if opponent_index is not None else ((), 0)
     )
     moves: list[ReportMove] = []
+    evidence: list[dict[str, Any]] = []
     for turn, step in enumerate(steps):
         if not isinstance(step, list) or agent_index >= len(step):
             continue
         record = step[agent_index] if isinstance(step[agent_index], dict) else {}
         action = record.get("action")
         error = _turn_error(record)
-        moves.append(ReportMove(turn=turn, action=action, error=error))
+        action_sent = (
+            action if isinstance(action, dict) else {"farmer": ["PASS"], "hands": [], "market": []}
+        )
+        fallback = inferred_fallback(action, record)
+        action_class = classify_action(
+            action_sent,
+            _replay_snapshot(record.get("observation")),
+            "inferred replay fallback" if fallback else None,
+        )
+        moves.append(ReportMove(turn=turn, action=action, error=error, action_class=action_class))
+        evidence.append(
+            {
+                "action": action_sent,
+                "action_sent": action_sent,
+                "action_raw": action,
+                "observation_before": _replay_snapshot(record.get("observation")),
+                "fallback_reason": "inferred replay fallback" if fallback else None,
+                "action_class": action_class,
+            }
+        )
     errors = [line.strip() for line in log_text.splitlines() if _looks_like_error(line)]
     errors.extend(move.error for move in moves if move.error)
     score = _number(rewards[agent_index]) if agent_index < len(rewards) else None
@@ -243,6 +268,7 @@ def episode_from_replay(
         opponent_action_counts=opponent_action_counts,
         our_market_orders=our_market_orders,
         opponent_market_orders=opponent_market_orders,
+        metrics=summarize_turns(evidence),
     )
 
 
@@ -282,8 +308,87 @@ def _local_moves(data: dict[str, Any], episode_root: Path) -> list[ReportMove]:
             continue
         action = record.get("action_sent") or record.get("action_raw")
         error = _text(record.get("exception") or record.get("fallback_reason"))
-        moves.append(ReportMove(turn=int(record.get("turn", index)), action=action, error=error))
+        moves.append(
+            ReportMove(
+                turn=int(record.get("turn", index)),
+                action=action,
+                error=error,
+                action_class=str(
+                    record.get("action_class")
+                    or classify_action(
+                        action,
+                        record.get("observation_before", {}),
+                        record.get("fallback_reason"),
+                    )
+                ),
+            )
+        )
     return moves
+
+
+def _local_metrics(data: dict[str, Any], moves: list[ReportMove]) -> dict[str, Any]:
+    raw = data.get("metrics")
+    if isinstance(raw, dict):
+        behavior = raw.get("behavior")
+        if isinstance(behavior, dict):
+            result = dict(behavior)
+            if isinstance(raw.get("cycle"), dict):
+                result["cycle"] = raw["cycle"]
+            return result
+        return raw
+    return summarize_turns(
+        {
+            "action_sent": move.action,
+            "action_class": move.action_class,
+            "fallback_reason": move.error if move.action_class == "fallback_pass" else None,
+        }
+        for move in moves
+    )
+
+
+def _replay_snapshot(observation: Any) -> dict[str, Any]:
+    if not isinstance(observation, dict):
+        return {}
+    farms = observation.get("farms")
+    player = observation.get("player", 0)
+    farm = (
+        farms[player]
+        if isinstance(farms, list) and isinstance(player, int) and player < len(farms)
+        else {}
+    )
+    if not isinstance(farm, dict):
+        return {}
+    tiles = [tile for row in farm.get("tiles", []) if isinstance(row, list) for tile in row]
+    animal_count = sum(1 for tile in tiles if isinstance(tile, dict) and tile.get("animal"))
+    crop_count = sum(1 for tile in tiles if isinstance(tile, dict) and tile.get("kind") == "PLANT")
+    return {
+        "day": observation.get("day"),
+        "hour": observation.get("hour"),
+        "animal_count": animal_count,
+        "crop_count": crop_count,
+        "hungry_animals": sum(
+            1
+            for tile in tiles
+            if isinstance(tile, dict) and tile.get("animal") and not tile.get("fed_today")
+        ),
+        "irrigation_pending": sum(
+            1
+            for tile in tiles
+            if isinstance(tile, dict)
+            and tile.get("kind") == "PLANT"
+            and not tile.get("watered_today")
+        ),
+        "mature_crops": sum(
+            1
+            for tile in tiles
+            if isinstance(tile, dict)
+            and tile.get("kind") == "PLANT"
+            and tile.get("yield_units", 0) > 0
+        ),
+        "fertilizer_pending": sum(
+            1 for tile in tiles if isinstance(tile, dict) and tile.get("fertilizer_available")
+        ),
+    }
 
 
 def _submission_html(submission: ReportSubmission) -> str:
@@ -341,6 +446,7 @@ def _submission_html(submission: ReportSubmission) -> str:
         f"{counts['submission']}–{counts['tie']}–{counts['opponent']} "
         f"· our average: {_display(_average(scored, 'score'))} "
         f"· opponent average: {_display(_average(opponent_scored, 'opponent_score'))}</p>"
+        f"{_submission_behavior_html(counted_episodes)}"
         "<table><thead><tr><th>Episode</th><th>Our submission</th><th>Opponent</th>"
         "<th>Result</th><th>Status</th><th>Turns</th><th>Errors</th></tr></thead>"
         f"<tbody>{episode_rows}</tbody></table>",
@@ -355,9 +461,9 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
         moves.append(
             "<tr>"
             f"<td>{move.turn}</td><td><pre>{escape(_json_text(move.action))}</pre></td>"
-            f"<td>{escape(move.error or '-')}</td></tr>"
+            f"<td>{escape(move.action_class)}</td><td>{escape(move.error or '-')}</td></tr>"
         )
-    move_rows = "".join(moves) or '<tr><td colspan="3">No moves recorded</td></tr>'
+    move_rows = "".join(moves) or '<tr><td colspan="4">No moves recorded</td></tr>'
     error_rows = errors or "<li>None recorded</li>"
     excluded = _is_excluded_episode(submission, episode)
     result_class = "self-play" if excluded else _result_class(episode.winner)
@@ -396,11 +502,22 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
         f"<strong>{episode.opponent_market_orders}</strong></div>"
         f'<div class="summary-card neutral"><span>Our errors</span>'
         f"<strong>{len(episode.errors)}</strong></div>"
+        f'<div class="summary-card neutral"><span>Idle turns</span>'
+        f"<strong>{escape(_percent(_metric_percent(episode.metrics, 'idle_turn_percentage')))}"
+        "</strong></div>"
+        f'<div class="summary-card neutral"><span>Longest PASS streak</span>'
+        f"<strong>{_metric(episode.metrics, 'longest_pass_streak')}</strong></div>"
+        f'<div class="summary-card opponent"><span>Fallbacks inferred</span>'
+        f"<strong>{_metric(episode.metrics, 'fallbacks_inferred')}</strong></div>"
+        f'<div class="summary-card opponent"><span>Lost actions</span>'
+        f"<strong>{_metric(episode.metrics, 'lost_actions')}</strong></div>"
         "</section>"
         f"{action_summary}"
+        f"{_behavior_details_html(episode)}"
+        f"{_cycle_details_html(episode)}"
         f"<h2>Errors ({len(episode.errors)})</h2><ul>{error_rows}</ul>"
         f"<details><summary>All moves ({len(episode.moves)} turns)</summary>"
-        "<table><thead><tr><th>Turn</th><th>Action</th>"
+        "<table><thead><tr><th>Turn</th><th>Action</th><th>Cause</th>"
         f"<th>Error</th></tr></thead><tbody>{move_rows}</tbody></table></details>"
     )
     return _page(f"Episode {episode.episode_id}", body, css_href="../../../assets/style.css")
@@ -511,6 +628,91 @@ def _action_summary_html(episode: ReportEpisode) -> str:
         f"{_action_table('Opponent actions', episode.opponent_action_counts, 'opponent')}"
         "</section>"
     )
+
+
+def _submission_behavior_html(episodes: list[ReportEpisode]) -> str:
+    metrics = [episode.metrics for episode in episodes if episode.metrics]
+    total = sum(
+        sum(_metric(item, "turn_classes", {}).values())
+        for item in metrics
+        if isinstance(_metric(item, "turn_classes", {}), dict)
+    )
+    idle = sum(_metric(item, "idle_turns") for item in metrics)
+    fallbacks = sum(_metric(item, "fallbacks_inferred") for item in metrics)
+    lost = sum(_metric(item, "lost_actions") for item in metrics)
+    longest = max((_metric(item, "longest_pass_streak") for item in metrics), default=0)
+    idle_percent = idle / total * 100 if total else None
+    return (
+        '<section class="summary-grid behavior-summary" aria-label="Idle and fallback summary">'
+        f'<div class="summary-card neutral"><span>Idle turns</span>'
+        f"<strong>{_percent(idle_percent)}</strong></div>"
+        f'<div class="summary-card neutral"><span>Longest PASS streak</span>'
+        f"<strong>{longest}</strong></div>"
+        f'<div class="summary-card opponent"><span>Fallbacks inferred</span>'
+        f"<strong>{fallbacks}</strong></div>"
+        f'<div class="summary-card opponent"><span>Lost actions</span><strong>{lost}</strong></div>'
+        "</section>"
+    )
+
+
+def _behavior_details_html(episode: ReportEpisode) -> str:
+    classes = _metric(episode.metrics, "turn_classes", {})
+    rows = (
+        "".join(
+            f"<tr><td>{escape(str(name))}</td><td>{count}</td></tr>"
+            for name, count in classes.items()
+        )
+        if isinstance(classes, dict)
+        else ""
+    )
+    heatmap = _metric(episode.metrics, "heatmap", {})
+    table_rows = rows or '<tr><td colspan="2">No turn metrics</td></tr>'
+    return (
+        '<section class="behavior-details" aria-label="PASS cause audit">'
+        "<h2>Turn cause audit</h2>"
+        "<table><thead><tr><th>Turn class</th><th>Count</th></tr></thead>"
+        f"<tbody>{table_rows}</tbody></table>"
+        "<details><summary>Day-hour heatmap</summary>"
+        f"<pre>{escape(_json_text(heatmap))}</pre></details>"
+        "</section>"
+    )
+
+
+def _cycle_details_html(episode: ReportEpisode) -> str:
+    cycle = _metric(episode.metrics, "cycle", {})
+    if not isinstance(cycle, dict) or not cycle:
+        return ""
+    rows = "".join(
+        f"<tr><td>{escape(str(label))}</td><td>{escape(str(cycle.get(key, 0)))}</td></tr>"
+        for key, label in (
+            ("commitments_created", "Commitments created"),
+            ("commitments_confirmed", "Commitments confirmed"),
+            ("commitments_replanned", "Commitments replanned"),
+            ("commitments_abandoned", "Commitments abandoned"),
+            ("plant_harvest_sale_cycles", "Plant cycles complete"),
+            ("animal_complete_cycles", "Animal cycles complete"),
+            ("actions_repeated_without_progress", "Repeated actions without progress"),
+            ("plan_observation_divergences", "Plan/observation divergences"),
+            ("cash_reserved", "Cash reserved"),
+            ("cash_spent", "Cash spent"),
+        )
+    )
+    return (
+        '<section class="behavior-details" aria-label="Cycle memory audit">'
+        "<h2>Cycle memory audit</h2>"
+        "<table><thead><tr><th>Metric</th><th>Value</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table></section>"
+    )
+
+
+def _metric(metrics: dict[str, Any], key: str, default: Any = 0) -> Any:
+    value = metrics.get(key, default) if isinstance(metrics, dict) else default
+    return default if value is None else value
+
+
+def _metric_percent(metrics: dict[str, Any], key: str) -> float | None:
+    value = _metric(metrics, key, None)
+    return float(value) if isinstance(value, int | float) else None
 
 
 def _action_table(title: str, counts: tuple[tuple[str, int], ...], css_class: str) -> str:

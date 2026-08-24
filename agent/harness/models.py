@@ -8,6 +8,7 @@ ARTIFACT_SCHEMA_VERSION = 1
 EpisodeStatus = Literal[
     "win", "loss", "tie", "agent_error", "environment_error", "timeout", "incomplete"
 ]
+TurnActionClass = Literal["productive", "movement", "legitimate_wait", "fallback_pass", "idle_pass"]
 
 
 class RunConfig(BaseModel):
@@ -45,6 +46,9 @@ class TurnRecord(BaseModel):
     observation_before: dict[str, Any] = Field(default_factory=dict)
     observation_after: dict[str, Any] = Field(default_factory=dict)
     fallback_reason: str | None = None
+    action_class: TurnActionClass = "idle_pass"
+    fallback_inferred: bool = False
+    lost_action_count: int = 0
     exception: str | None = None
     latency_ms: float | None = None
 

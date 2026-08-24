@@ -6,6 +6,13 @@ from hashlib import sha256
 from time import perf_counter
 from typing import Any, cast
 
+from agent.analysis.action_metrics import (
+    classify_action,
+    command_count,
+    inferred_fallback,
+    is_whole_turn_pass,
+    summarize_turns,
+)
 from agent.core.validation import validate_action
 from agent.harness.models import EpisodeRecord, EpisodeStatus, RunConfig, TurnRecord
 from agent.harness.protocols import Agent, EnvironmentAdapter, Reporter
@@ -30,6 +37,9 @@ class EpisodeRunner:
         observation = environment.reset(
             seed=self.config.seed, configuration=self.config.configuration
         )
+        reset_cycle = getattr(agent, "reset_cycle", None)
+        if callable(reset_cycle):
+            reset_cycle()
         records: list[TurnRecord] = []
         errors = 0
         fallbacks = 0
@@ -59,15 +69,23 @@ class EpisodeRunner:
                 exception = f"timeout: action exceeded {self.config.action_timeout_ms}ms"
                 status = "timeout"
                 raw = None
-            action, fallback_reason = validate_action(raw)
+            action, fallback_reason = validate_action(raw, observation)
             fallbacks += int(fallback_reason is not None)
+            action_sent = action.model_dump()
+            observation_before = _observation_summary(observation)
+            whole_turn_fallback = fallback_reason is not None and is_whole_turn_pass(action_sent)
             event = TurnRecord(
                 turn=turn,
                 action_raw=raw,
-                action_sent=action.model_dump(),
+                action_sent=action_sent,
                 observation_hash=_hash_observation(observation),
-                observation_before=_observation_summary(observation),
+                observation_before=observation_before,
                 fallback_reason=fallback_reason,
+                action_class=classify_action(action_sent, observation_before, fallback_reason),
+                fallback_inferred=inferred_fallback(
+                    action_sent, {"fallback_reason": fallback_reason}
+                ),
+                lost_action_count=(command_count(raw) if whole_turn_fallback else 0),
                 exception=exception,
                 latency_ms=latency_ms,
             )
@@ -89,6 +107,9 @@ class EpisodeRunner:
             raw_result = environment.result()
             if status == "incomplete":
                 status = _infer_status(raw_result)
+        finalize_cycle = getattr(agent, "finalize_cycle", None)
+        if callable(finalize_cycle):
+            finalize_cycle(observation)
         record = EpisodeRecord(
             episode_id=episode_id,
             seed=self.config.seed,
@@ -101,7 +122,7 @@ class EpisodeRunner:
             raw_result=raw_result,
             errors=errors,
             fallbacks=fallbacks,
-            metrics=_metrics(records, observation),
+            metrics=_metrics(records, observation, agent),
             turns_log=records if self.config.log_turns else [],
         )
         for reporter in self.reporters:
@@ -132,7 +153,9 @@ def _infer_status(result: Any) -> EpisodeStatus:
     return "tie"
 
 
-def _metrics(records: list[TurnRecord], observation: dict[str, Any]) -> dict[str, Any]:
+def _metrics(
+    records: list[TurnRecord], observation: dict[str, Any], agent: Any | None = None
+) -> dict[str, Any]:
     """Portable evidence summary; official-only fields stay nullable/omitted."""
     actions: dict[str, int] = {}
     for record in records:
@@ -153,8 +176,9 @@ def _metrics(records: list[TurnRecord], observation: dict[str, Any]) -> dict[str
     farms_raw = observation.get("farms")
     farms: list[Any] = farms_raw if isinstance(farms_raw, list) else []
     farm = farms[player] if isinstance(player, int) and 0 <= player < len(farms) else {}
-    return {
+    result = {
         "action_counts": actions,
+        "behavior": summarize_turns(records),
         "economic": _economic_metrics(records),
         "latency_ms": {
             "mean": sum(latencies) / len(latencies) if latencies else None,
@@ -165,6 +189,10 @@ def _metrics(records: list[TurnRecord], observation: dict[str, Any]) -> dict[str
         "final_money": farm.get("money") if isinstance(farm, dict) else None,
         "portfolio": _portfolio_metrics(records, observation),
     }
+    cycle_metrics = getattr(agent, "cycle_metrics", None)
+    if callable(cycle_metrics):
+        result["cycle"] = cycle_metrics()
+    return result
 
 
 def _portfolio_metrics(records: list[TurnRecord], observation: dict[str, Any]) -> dict[str, Any]:
@@ -278,9 +306,12 @@ def _observation_summary(observation: dict[str, Any]) -> dict[str, Any]:
     counts: dict[str, int] = {}
     animal_count = 0
     crop_count = 0
+    mature_crops = 0
     hungry_animals = 0
     irrigation_pending = 0
     escaped_animals = 0
+    fertilizer_pending = 0
+    inventory_units = 0
     for row in tiles:
         if not isinstance(row, list):
             continue
@@ -296,11 +327,23 @@ def _observation_summary(observation: dict[str, Any]) -> dict[str, Any]:
             if isinstance(tile, dict):
                 animal_count += int(bool(tile.get("animal")))
                 crop_count += int(tile.get("kind") == "PLANT")
+                mature_crops += int(tile.get("kind") == "PLANT" and tile.get("yield_units", 0) > 0)
                 hungry_animals += int(bool(tile.get("animal")) and not tile.get("fed_today", False))
                 irrigation_pending += int(
                     tile.get("kind") == "PLANT" and not tile.get("watered_today", False)
                 )
                 escaped_animals += int(tile.get("kind") == "ESCAPED")
+                fertilizer_pending += int(bool(tile.get("fertilizer_available")))
+    inventories = private.get("inventories", []) if isinstance(private, dict) else []
+    if isinstance(inventories, list):
+        inventory_units = sum(
+            sum(int(amount) for amount in inventory.values() if isinstance(amount, int | float))
+            for inventory in inventories
+            if isinstance(inventory, dict)
+        )
+    shed = private.get("shed", {}) if isinstance(private, dict) else {}
+    wheat = int(shed.get("WHEAT", 0)) if isinstance(shed, dict) else 0
+    feed_deficit = max(0, animal_count - wheat - inventory_units)
     return {
         "day": observation.get("day"),
         "hour": observation.get("hour"),
@@ -317,8 +360,12 @@ def _observation_summary(observation: dict[str, Any]) -> dict[str, Any]:
         else {},
         "animal_count": animal_count,
         "crop_count": crop_count,
+        "mature_crops": mature_crops,
         "hungry_animals": hungry_animals,
         "irrigation_pending": irrigation_pending,
         "escaped_animals": escaped_animals,
+        "fertilizer_pending": fertilizer_pending,
+        "inventory_units": inventory_units,
+        "feed_deficit": feed_deficit,
         "stock_wasted": 0,
     }
