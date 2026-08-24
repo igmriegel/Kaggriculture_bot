@@ -141,17 +141,8 @@ class LeaderV4Engine(LeaderV2Engine):
         if empty_slots <= 0 or horizon < 2:
             return []
 
-        # Early game opening (Day 0-3): High value Melon + Wheat combo for big Day 10 cashout
-        if state.day <= 3:
-            melon_qty = min(11, empty_slots)
-            wheat_qty = max(0, min(empty_slots - melon_qty, 6))
-            res = [("MELON", melon_qty)]
-            if wheat_qty > 0:
-                res.append(("WHEAT", wheat_qty))
-            return res
-
-        # Evaluate expected value (EV) per tile-day for each crop candidate
-        candidates = ["WHEAT", "CARROT", "STRAWBERRY", "MELON"]
+        # Evaluate expected value (EV) per tile-day dynamically from market signals
+        candidates = ["WHEAT", "CARROT", "TOMATO", "STRAWBERRY", "MELON"]
         scored: list[tuple[float, str]] = []
         for crop in candidates:
             maturity = _CROP_MATURITY[crop]
@@ -163,34 +154,62 @@ class LeaderV4Engine(LeaderV2Engine):
             seed_cost = _V4_SEED_COST[crop]
 
             if crop == "STRAWBERRY":
+                # Multi-harvest crop: produces initially at day 10, then every 2 days
                 cycles = max(1, (horizon - 10) // 2 + 1) if horizon >= 10 else 1
-                est_revenue = price * (cycles * 2) - seed_cost
+                est_revenue = (price * 2 * cycles) - seed_cost
                 eff_maturity = max(maturity, min(horizon, 10 + (cycles - 1) * 2))
             elif crop == "MELON":
+                # Single harvest: 3-6 units upon maturity (day 10-12)
                 est_revenue = (price * 3) - seed_cost
                 eff_maturity = maturity
-            elif crop == "WHEAT":
+            elif crop == "TOMATO":
+                # Single harvest: 2 units at day 8
                 est_revenue = (price * 2) - seed_cost
                 eff_maturity = maturity
+            elif crop == "WHEAT":
+                # Rapid 2-day single harvest: 2 units + critical animal feed synergy
+                feed_bonus = 1.2 if self._animal_count(state) > 0 else 1.0
+                est_revenue = ((price * 2) - seed_cost) * feed_bonus
+                eff_maturity = maturity
             else:  # CARROT
+                # Rapid 2-day single harvest: 2 units
                 est_revenue = (price * 2) - seed_cost
                 eff_maturity = maturity
 
-            score = (est_revenue / max(1, eff_maturity)) * (1.0 + min(3, demand) * 0.1)
+            daily_roi = est_revenue / max(1, eff_maturity)
+            demand_multiplier = 1.0 + min(4, demand) * 0.15
+            score = daily_roi * demand_multiplier
             scored.append((score, crop))
 
         scored.sort(reverse=True)
         if not scored:
             return [("WHEAT", empty_slots)]
 
-        primary_crop = scored[0][1]
-        if len(scored) > 1 and scored[1][0] > scored[0][0] * 0.75:
-            secondary_crop = scored[1][1]
-            primary_slots = max(1, (empty_slots * 3) // 4)
-            secondary_slots = max(0, empty_slots - primary_slots)
-            return [(primary_crop, primary_slots), (secondary_crop, secondary_slots)]
+        # Guarantee at least some wheat if animals are present or planned and wheat is scarce
+        wheat_reserved = 0
+        allocated: list[tuple[str, int]] = []
+        remaining_slots = empty_slots
 
-        return [(primary_crop, empty_slots)]
+        if (self._animal_count(state) > 0 or state.day == 0) and state.shed.get("WHEAT", 0) < 4:
+            wheat_reserved = min(remaining_slots, 6)
+            allocated.append(("WHEAT", wheat_reserved))
+            remaining_slots -= wheat_reserved
+
+        if remaining_slots <= 0:
+            return allocated
+
+        primary_crop = scored[0][1]
+        if len(scored) > 1 and scored[1][0] > scored[0][0] * 0.80 and scored[1][1] != primary_crop:
+            secondary_crop = scored[1][1]
+            primary_slots = max(1, (remaining_slots * 3) // 4)
+            secondary_slots = max(0, remaining_slots - primary_slots)
+            allocated.append((primary_crop, primary_slots))
+            if secondary_slots > 0:
+                allocated.append((secondary_crop, secondary_slots))
+        else:
+            allocated.append((primary_crop, remaining_slots))
+
+        return allocated
 
     def _tasks(self, state: NormalizedState, goals: tuple[ProductionGoal, ...]) -> list[Task]:
         tasks: list[Task] = []
@@ -352,9 +371,9 @@ class LeaderV4Engine(LeaderV2Engine):
         if state.day == 0 and state.hour == 0:
             return []
 
-        # 1. Day 0 Hour 1 Opening (Big Bang)
+        # 1. Day 0 Hour 1 Opening (Dynamic Big Bang)
         if state.day == 0 and state.hour == 1:
-            return [
+            opening_orders = [
                 ["HIRE"],
                 ["HIRE"],
                 ["HIRE"],
@@ -362,10 +381,15 @@ class LeaderV4Engine(LeaderV2Engine):
                 ["HIRE"],
                 ["BUY_ANIMAL", "COW", 1],
                 ["BUY_ANIMAL", "SHEEP", 1],
-                ["BUY_SEED", "MELON", 11],
-                ["BUY_SEED", "WHEAT", 6],
                 ["BUY_PRODUCT", "WHEAT", 4],
             ]
+            # Dynamically append seeds chosen by dynamic goals
+            for goal in goals:
+                if goal.name.startswith("plant_"):
+                    crop_name = goal.name.removeprefix("plant_").upper()
+                    if goal.quantity > 0:
+                        opening_orders.append(["BUY_SEED", crop_name, goal.quantity])
+            return opening_orders[:10]
 
         # Early selling to finance setup
         if state.day == 0 and state.hour == 2:
