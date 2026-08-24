@@ -310,7 +310,11 @@ def episode_from_replay(
     )
 
 
-def render_reports(submissions: Iterable[ReportSubmission], output_dir: Path) -> None:
+def render_reports(
+    submissions: Iterable[ReportSubmission],
+    output_dir: Path,
+    on_progress: Any | None = None,
+) -> None:
     """Write an index, one submission page, and one page per episode."""
     output_dir.mkdir(parents=True, exist_ok=True)
     assets = output_dir / "assets"
@@ -325,6 +329,8 @@ def render_reports(submissions: Iterable[ReportSubmission], output_dir: Path) ->
             (episodes_root / f"{_slug(episode.episode_id)}.html").write_text(
                 _episode_html(submission, episode), encoding="utf-8"
             )
+            if callable(on_progress):
+                on_progress(f"{submission.submission_id}/{episode.episode_id}")
         (submission_root / "index.html").write_text(_submission_html(submission), encoding="utf-8")
     (output_dir / "index.html").write_text(_index_html(ordered), encoding="utf-8")
 

@@ -23,6 +23,37 @@ from agent.harness.html_reports import (
 )
 
 
+class _ProgressBar:
+    def __init__(self, total: int, prefix: str = "Progress", width: int = 30) -> None:
+        self.total = max(1, total)
+        self.current = 0
+        self.prefix = prefix
+        self.width = width
+        self._is_tty = sys.stderr.isatty()
+        self._render()
+
+    def update(self, item_name: str = "") -> None:
+        self.current = min(self.total, self.current + 1)
+        self._render(item_name)
+        if self.current >= self.total:
+            sys.stderr.write("\n")
+            sys.stderr.flush()
+
+    def _render(self, item_name: str = "") -> None:
+        percent = (self.current / self.total) * 100
+        filled = int(self.width * self.current // self.total)
+        bar = "█" * filled + "░" * (self.width - filled)
+        trunc_name = (item_name[:25] + "...") if len(item_name) > 28 else item_name
+        text = f"\r{self.prefix} |{bar}| {self.current}/{self.total} ({percent:.1f}%) {trunc_name}"
+        if self._is_tty:
+            sys.stderr.write(f"{text:<80}")
+        else:
+            # When piped or in non-tty, print at 10% steps and completion
+            if self.current == self.total or self.current % max(1, self.total // 10) == 0:
+                sys.stderr.write(f"{self.prefix} [{self.current}/{self.total}] {percent:.0f}%\n")
+        sys.stderr.flush()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reports-dir", type=Path, default=Path("reports"))
@@ -54,8 +85,12 @@ def main(argv: list[str] | None = None) -> int:
         if not sources:
             print("no local or remote submission artifacts found", file=sys.stderr)
             return 1 if remote_error is None else 2
-        render_reports(_merge_submissions(sources), args.reports_dir)
-        print(f"reports updated under {args.reports_dir}")
+        merged = _merge_submissions(sources)
+        total_episodes = sum(len(sub.episodes) for sub in merged)
+        print(f"Rendering {len(merged)} submissions ({total_episodes} episode pages)...")
+        bar = _ProgressBar(total=total_episodes, prefix="Rendering HTML")
+        render_reports(merged, args.reports_dir, on_progress=bar.update)
+        print(f"Reports successfully updated under {args.reports_dir}")
     return 2 if remote_error is not None else 0
 
 
@@ -69,7 +104,9 @@ def _update_remote(
     submissions: list[ReportSubmission] = []
     logs_available = True
     logs_warning_shown = False
-    for submission in _records(listing):
+    submissions_list = _records(listing)
+    print(f"Fetching replays/logs for {len(submissions_list)} remote submissions from Kaggle...")
+    for sub_idx, submission in enumerate(submissions_list, 1):
         submission_id = _identifier(submission, "submission")
         destination = raw_root / _slug(submission_id) / "raw"
         destination.mkdir(parents=True, exist_ok=True)
@@ -79,6 +116,10 @@ def _update_remote(
         )
         episodes = _records(episodes_data)
         _write_json(destination / "episodes.json", episodes_data)
+        print(
+            f"[{sub_idx}/{len(submissions_list)}] "
+            f"Submission {submission_id}: {len(episodes)} episodes"
+        )
         for episode in episodes:
             episode_id = _identifier(episode, "episode")
             episode_dir = destination / _slug(episode_id)
