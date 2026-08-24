@@ -7,9 +7,9 @@
 | Registries | `agent/harness/registry.py` | implemented | add explicit names and diagnostics |
 | Episode execution | `agent/harness/execution.py` | implemented | enforce hard process timeouts if required |
 | Official adapter | `agent/harness/adapters/kaggle.py` | partial | validate official farmer/hand/market wire actions and capture native fixtures |
-| Artifacts | `agent/harness/reporting.py` | implemented | add artifact migrations on schema change |
+| Artifacts | `agent/harness/reporting.py`, `agent/harness/html_reports.py` | implemented | add artifact migrations on schema change |
 | Scenarios/benchmarks | `agent/harness/scenarios.py` | partial | fixed 720-turn PASS/random/self-play matrix and official fixture replay |
-| CLI | `agent/harness/cli.py` | implemented | smoke/run/benchmark/report/package validation |
+| CLI | `agent/harness/cli.py`, `scripts/update_submission_reports.py`, `Makefile` | implemented | smoke/run/benchmark/report/package validation and HTML submission refresh |
 
 | Hands and action validation | `agent/core/`, `agent/harness/adapters/` | gap | ordered hand actions, legal action families, and safe no-op records |
 | Inventory and shed logistics | future `agent/core/` models and engine services | gap | per-unit inventory, shed access tiles, capacity, and overflow accounting |

@@ -181,8 +181,15 @@ class LeaderV3Engine(LeaderV2Engine):
             state.shed_capacity - self.v3_config.shed_safety_buffer
         )
         products = {
-            "WHEAT", "CARROT", "TOMATO", "STRAWBERRY", "MELON",
-            "EGG", "MILK", "WOOL", "FERTILIZER",
+            "WHEAT",
+            "CARROT",
+            "TOMATO",
+            "STRAWBERRY",
+            "MELON",
+            "EGG",
+            "MILK",
+            "WOOL",
+            "FERTILIZER",
         }
         for item, amount in sorted(state.shed.items()):
             if amount <= 0 or item not in products:

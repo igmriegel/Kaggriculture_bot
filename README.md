@@ -20,6 +20,7 @@ boundary falls back to `PASS` rather than inventing a mechanic.
 - A typed action boundary with a final safety validator.
 - A strategy-agnostic episode runner with deterministic seeds and time limits.
 - JSON episode reports and optional JSONL decision traces.
+- Static HTML reports per submission, episode, score, move, and error.
 - Built-in PASS, deterministic-random, and self-play scenarios.
 - Six engines: a conservative baseline, `heuristic-v1`, `competitive`,
   `leader-inspired`, and the submission candidate `leader-v2`.
@@ -79,6 +80,16 @@ uv run --group competition python -m agent.harness benchmark --scenario v1-self-
 Each scenario uses explicit seeds. Results are written as versioned JSON under
 `reports/`; add `--log-turns` to a `run` or `smoke` command for a JSONL stream
 of turn-level actions, fallbacks, exceptions, and latency.
+
+Generate the submission dashboard from local artifacts and cached Kaggle data:
+
+```bash
+make reports
+```
+
+Use `make reports-local` offline. The generated `reports/index.html` links to
+one page per submission and one page per episode; raw replay, log, and metadata
+files remain under `reports/submissions/<id>/raw/` for regeneration.
 
 > **Note:** the official environment is optional. If its native dependencies
 > are unavailable on your machine, unit tests and package validation still run;

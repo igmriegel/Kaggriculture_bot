@@ -43,6 +43,11 @@ three-scenario matrix under Python 3.11.
 Reports, development dependencies, local paths, and Graphify artifacts must not
 enter the package.
 
+After a local run or remote submission, update the audit dashboard with
+`make reports`. The dashboard is generated outside the submission archive and
+keeps raw replay/log downloads under `reports/submissions/` so scores and
+turn-level actions can be reviewed without changing the runtime package.
+
 ## Submission lifecycle
 
 1. Generate the archive and run the isolated package check above. Confirm that
