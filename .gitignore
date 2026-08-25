@@ -6,3 +6,4 @@ __pycache__/
 dist/
 reports/*
 !reports/.gitkeep
+.agents/
