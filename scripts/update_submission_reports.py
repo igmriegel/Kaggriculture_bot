@@ -118,10 +118,16 @@ def _update_remote(
         # Always fetch latest episodes listing from Kaggle API because completed
         # submissions continue receiving public matches
         episodes_path = destination / "episodes.json"
-        episodes_data = _kaggle_json(
-            ["competitions", "episodes", submission_id, "--format", "json", "--quiet"]
-        )
-        _write_json(episodes_path, episodes_data)
+        try:
+            episodes_data = _kaggle_json(
+                ["competitions", "episodes", submission_id, "--format", "json", "--quiet"]
+            )
+            _write_json(episodes_path, episodes_data)
+        except RuntimeError:
+            if episodes_path.is_file():
+                episodes_data = _read_json(episodes_path)
+            else:
+                episodes_data = []
 
         episodes = _records(episodes_data)
         all_submission_episodes.append((submission, destination, episodes))

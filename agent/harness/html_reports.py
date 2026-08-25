@@ -498,10 +498,18 @@ def _replay_economic_metrics(
     }
 
 
+def _episode_sort_key(episode: ReportEpisode) -> tuple[int, int | str]:
+    ep_id = episode.episode_id
+    # If episode ID is numeric, sort by integer value descending (e.g. 99190440 before 98713910)
+    if ep_id.isdigit():
+        return (0, -int(ep_id))
+    return (1, ep_id)
+
+
 def _submission_html(submission: ReportSubmission) -> str:
     episodes = sorted(
         submission.episodes,
-        key=lambda item: (not _is_excluded_episode(submission, item), item.episode_id),
+        key=lambda item: (_is_excluded_episode(submission, item), _episode_sort_key(item)),
     )
     counted_episodes = _counted_episodes(submission)
     counts = _outcome_counts(counted_episodes)
