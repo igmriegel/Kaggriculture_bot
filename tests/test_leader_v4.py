@@ -149,3 +149,36 @@ def test_v4_builds_pasture_proactively_when_livestock_target_unmet() -> None:
 
     # Should either build pasture, plant, or move to do so
     assert action["farmer"] is not None
+
+
+def test_v4_escalates_water_priority_on_drought_risk() -> None:
+    engine = LeaderV4Engine()
+    # Plant that was unwatered for 1 day (consecutive_unwatered = 1)
+    plant_tile = {
+        "kind": "PLANT",
+        "crop": "WHEAT",
+        "watered_today": False,
+        "consecutive_unwatered": 1,
+        "planted_day": 2,
+    }
+    obs = _observation(plant_tile, day=3, hour=10, money=1000)
+    action = engine.act(obs)
+    # Farmer at (4,4) should immediately water the tile
+    assert action["farmer"] == ["WATER"]
+
+
+def test_v4_escalates_harvest_priority_on_decay_risk() -> None:
+    engine = LeaderV4Engine()
+    # Ripe crop near max_lifespan_step
+    plant_tile = {
+        "kind": "PLANT",
+        "crop": "STRAWBERRY",
+        "yield_units": 2,
+        "watered_today": True,
+        "max_lifespan_step": 300,
+        "planted_day": 1,
+    }
+    obs = _observation(plant_tile, day=12, hour=10, step=290, money=1000)
+    action = engine.act(obs)
+    # Farmer at (4,4) should immediately harvest to prevent decay
+    assert action["farmer"] == ["HARVEST"]

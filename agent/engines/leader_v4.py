@@ -11,7 +11,7 @@ from functools import partial
 from typing import Any
 
 from agent.core.contracts import Action
-from agent.core.state import NormalizedState
+from agent.core.state import NormalizedState, Tile
 from agent.domain.economics import marginal_sale_values, projected_prices
 from agent.engines.cycle_memory import CycleMemory
 from agent.engines.leader_v2 import (
@@ -215,11 +215,26 @@ class LeaderV4Engine(LeaderV2Engine):
         tasks: list[Task] = []
         opening = state.day == 0
 
-        # 1. Harvest ripe crops and animal products
+        # 1. Harvest ripe crops, decaying crops (Emergency Priority 0), and animal products
         for tile in state.tiles:
             point = (tile.x, tile.y)
             if self._ripe(tile, state):
-                tasks.append(Task(1, point, ["HARVEST"], _can_collect_or_harvest, ("tile", point)))
+                # Decay risk check: if close to max_lifespan_step, elevate to Priority 0
+                is_decay_risk = (
+                    tile.kind == "PLANT"
+                    and tile.max_lifespan_step is not None
+                    and state.step >= tile.max_lifespan_step - 48
+                )
+                harvest_priority = 0 if is_decay_risk else 1
+                tasks.append(
+                    Task(
+                        harvest_priority,
+                        point,
+                        ["HARVEST"],
+                        _can_collect_or_harvest,
+                        ("tile", point),
+                    )
+                )
                 continue
 
             # 2. Animal care: FEED (priority 1), CARE (priority 2), COLLECT_FERTILIZER (priority 3)
@@ -240,10 +255,13 @@ class LeaderV4Engine(LeaderV2Engine):
                     tasks.append(Task(2, point, ["CARE"], _any_inventory, ("tile", point)))
                 continue
 
-            # 3. Water unwatered plants (priority 5: after animal survival is secured)
+            # 3. Water plants (Emergency priority 1 if drought risk, else priority 5)
             if tile.kind == "PLANT" and not tile.watered_today:
+                # Drought risk: unwatered for 1 day -> must water today to avoid turning into WEED
+                is_drought_risk = tile.consecutive_unwatered >= 1
+                water_priority = 1 if is_drought_risk else (4 if opening else 5)
                 tasks.append(
-                    Task(4 if opening else 5, point, ["WATER"], _any_inventory, ("tile", point))
+                    Task(water_priority, point, ["WATER"], _any_inventory, ("tile", point))
                 )
 
         # 3.5. DIG WEEDS (priority 6)
@@ -593,6 +611,23 @@ class LeaderV4Engine(LeaderV2Engine):
         ):
             return True
         return sum(state.shed.values()) >= (state.shed_capacity - 10)
+
+    @staticmethod
+    def _ripe(tile: Tile, state: NormalizedState) -> bool:
+        first_yield = {"WHEAT": 2, "CARROT": 2, "TOMATO": 8, "STRAWBERRY": 10, "MELON": 10}
+        if tile.animal and tile.yield_units > 0:
+            return True
+        if tile.kind == "PLANT" and tile.yield_units > 0:
+            # Immediate harvest if at risk of decay
+            if tile.max_lifespan_step is not None and state.step >= tile.max_lifespan_step - 48:
+                return True
+            if (
+                tile.crop in first_yield
+                and tile.planted_day is not None
+                and state.day - tile.planted_day >= first_yield[tile.crop]
+            ):
+                return True
+        return False
 
 
 __all__ = ["LeaderV4Config", "LeaderV4Engine"]

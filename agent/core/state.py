@@ -26,6 +26,8 @@ class Tile:
     cared_today: bool = False
     fertilizer_available: bool = False
     planted_day: int | None = None
+    consecutive_unwatered: int = 0
+    max_lifespan_step: int | None = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +85,8 @@ class NormalizedState:
                             cared_today=bool(raw.get("cared_today", False)),
                             fertilizer_available=bool(raw.get("fertilizer_available", False)),
                             planted_day=_optional_integer(raw.get("planted_day")),
+                            consecutive_unwatered=_integer(raw.get("consecutive_unwatered")),
+                            max_lifespan_step=_optional_integer(raw.get("max_lifespan_step")),
                         )
                     )
                 elif raw is None:
