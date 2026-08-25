@@ -222,14 +222,14 @@ class LeaderV4Engine(LeaderV2Engine):
                 tasks.append(Task(1, point, ["HARVEST"], _can_collect_or_harvest, ("tile", point)))
                 continue
 
-            # 2. Animal care: FEED (priority 2), CARE (priority 3), COLLECT_FERTILIZER (priority 4)
+            # 2. Animal care: FEED (priority 1), CARE (priority 2), COLLECT_FERTILIZER (priority 3)
             if tile.animal:
                 if not tile.fed_today:
-                    tasks.append(Task(2, point, ["FEED"], _has_wheat, ("tile", point)))
+                    tasks.append(Task(1, point, ["FEED"], _has_wheat, ("tile", point)))
                 if tile.fertilizer_available:
                     tasks.append(
                         Task(
-                            4,
+                            3,
                             point,
                             ["COLLECT_FERTILIZER"],
                             _can_collect_or_harvest,
@@ -237,30 +237,32 @@ class LeaderV4Engine(LeaderV2Engine):
                         )
                     )
                 elif not tile.cared_today:
-                    tasks.append(Task(3, point, ["CARE"], _any_inventory, ("tile", point)))
+                    tasks.append(Task(2, point, ["CARE"], _any_inventory, ("tile", point)))
                 continue
 
-            # 3. Water unwatered plants (HIGH PRIORITY and NO inventory restriction)
+            # 3. Water unwatered plants (priority 5: after animal survival is secured)
             if tile.kind == "PLANT" and not tile.watered_today:
                 tasks.append(
-                    Task(2 if opening else 3, point, ["WATER"], _any_inventory, ("tile", point))
+                    Task(4 if opening else 5, point, ["WATER"], _any_inventory, ("tile", point))
                 )
 
-        # 3.5. DIG WEEDS (HIGH PRIORITY 3) - Free up infested tiles immediately
+        # 3.5. DIG WEEDS (priority 6)
         for tile in state.tiles:
             if tile.kind == "WEED":
                 point = (tile.x, tile.y)
-                tasks.append(Task(3, point, ["DIG"], _any_inventory, ("tile", point)))
+                tasks.append(Task(6, point, ["DIG"], _any_inventory, ("tile", point)))
 
         # 4. Pasture expansion & Animal placement
-        target_animals = next((g.quantity for g in goals if g.name == "operational_animals"), 0)
+        pending = self._pending_animals(state)
         total_pastures = [t for t in state.tiles if t.kind == "PASTURE"]
         open_pastures = [t for t in total_pastures if not t.animal]
 
-        # Build pasture if open pastures are less than needed to reach target_animals
-        build_count = max(0, min(target_animals - len(total_pastures), 2))
-        if opening:
-            build_count = max(build_count, self.v4_config.opening_animals - len(open_pastures))
+        planned_animals = (
+            self.v4_config.opening_animals
+            if state.day == 0 and state.hour == 1 and not any(state.shed.values())
+            else pending
+        )
+        build_count = max(0, planned_animals - len(open_pastures))
 
         for tile in sorted(
             (t for t in state.tiles if t.kind is None),
@@ -296,9 +298,7 @@ class LeaderV4Engine(LeaderV2Engine):
 
         # 6. Feed pickups (Wheat from shed to feed animals)
         hungry_animals = sum(1 for tile in state.tiles if tile.animal and not tile.fed_today)
-        wheat_in_hands = sum(inv.get("WHEAT", 0) for inv in state.unit_inventories)
-        needed_feed_pickups = max(0, hungry_animals - wheat_in_hands)
-        feed_pickups = min(len(self._shed_tiles(state)), (needed_feed_pickups + 1) // 2)
+        feed_pickups = min(len(self._shed_tiles(state)), (hungry_animals + 1) // 2)
         available_wheat = state.shed.get("WHEAT", 0)
         if available_wheat > 0 and feed_pickups:
             reserved_wheat = 0
@@ -371,7 +371,7 @@ class LeaderV4Engine(LeaderV2Engine):
         if state.day == 0 and state.hour == 0:
             return []
 
-        # 1. Day 0 Hour 1 Opening (Dynamic Big Bang)
+        # 1. Day 0 Hour 1 Opening (Big Bang 4 Animals Setup)
         if state.day == 0 and state.hour == 1:
             opening_orders = [
                 ["HIRE"],
@@ -379,29 +379,46 @@ class LeaderV4Engine(LeaderV2Engine):
                 ["HIRE"],
                 ["HIRE"],
                 ["HIRE"],
-                ["BUY_ANIMAL", "COW", 1],
-                ["BUY_ANIMAL", "SHEEP", 1],
+                ["BUY_ANIMAL", "COW", 2],
+                ["BUY_ANIMAL", "SHEEP", 2],
                 ["BUY_PRODUCT", "WHEAT", 4],
             ]
-            # Dynamically append seeds chosen by dynamic goals
-            for goal in goals:
-                if goal.name.startswith("plant_"):
-                    crop_name = goal.name.removeprefix("plant_").upper()
-                    if goal.quantity > 0:
-                        opening_orders.append(["BUY_SEED", crop_name, goal.quantity])
+            # Dynamic cash reserve for Days 1 & 2:
+            # 1. Base labor to maintain workers
+            wheat_price = max(1, int(state.prices.get("WHEAT", 25)))
+            planned_daily_labor_cost = sum(self._hire_cost(i) for i in range(2))
+            two_day_labor_reserve = planned_daily_labor_cost * 2
+            two_day_feed_reserve = 4 * 2 * wheat_price
+            min_cash_reserve = two_day_labor_reserve + two_day_feed_reserve
+
+            opening_hires_cost = sum(self._hire_cost(i) for i in range(5))
+            opening_animals_cost = 2 * _ANIMAL_COST["COW"] + 2 * _ANIMAL_COST["SHEEP"]
+            opening_wheat_cost = 4 * wheat_price
+            committed_cost = opening_hires_cost + opening_animals_cost + opening_wheat_cost
+
+            seed_budget = max(0, state.money - committed_cost - min_cash_reserve)
+            # Guarantee initial melon & wheat portfolio if budget allows
+            if seed_budget >= 10 * _V4_SEED_COST["MELON"] + 6 * _V4_SEED_COST["WHEAT"]:
+                opening_orders.extend([["BUY_SEED", "MELON", 11], ["BUY_SEED", "WHEAT", 6]])
+            else:
+                for goal in goals:
+                    if goal.name.startswith("plant_"):
+                        crop_name = goal.name.removeprefix("plant_").upper()
+                        cost_per_seed = _V4_SEED_COST.get(crop_name, 20)
+                        affordable_qty = min(goal.quantity, seed_budget // cost_per_seed)
+                        if affordable_qty > 0:
+                            opening_orders.append(["BUY_SEED", crop_name, affordable_qty])
             return opening_orders[:10]
 
-        # Early selling to finance setup
-        if state.day == 0 and state.hour == 2:
-            wheat_stock = state.shed.get("WHEAT", 0)
-            if wheat_stock >= 4:
-                return [["SELL", "WHEAT", 2]]
+        # Early opening: do not sell operational supplies on Day 0
+        if state.day == 0:
+            return []
 
         projected = projected_prices(
             state.market_inventory, state.shops, state.step, max(0, 720 - state.step)
         )
         orders = self._sales(state, projected)
-        spending = max(0, state.money - 50)
+        spending = max(0, state.money - 20)
 
         if self._closing(state):
             return orders[: self.v4_config.max_orders]
@@ -418,40 +435,21 @@ class LeaderV4Engine(LeaderV2Engine):
                     orders.append(["BUY_PRODUCT", "WHEAT", int(qty)])
                     spending -= qty * wheat_price
 
-        # 3. Livestock expansion (Cow & Sheep)
-        animal_goal = next((g.quantity for g in goals if g.name == "operational_animals"), 0)
-        current_animals = self._animal_count(state) + self._pending_animals(state)
-        if current_animals < animal_goal and self._animal_chain_ready(state):
-            next_animal = "COW" if current_animals % 2 == 0 else "SHEEP"
-            cost = _ANIMAL_COST[next_animal]
-            feed_buffer_cost = 2 * wheat_price
-            if spending >= (cost + feed_buffer_cost) and len(orders) < self.v4_config.max_orders:
-                orders.append(["BUY_ANIMAL", next_animal, 1])
-                spending -= cost
-
-        # 4. Seed purchases based on portfolio goals
-        for goal in goals:
-            if not goal.name.startswith("plant_") or len(orders) >= self.v4_config.max_orders:
-                continue
-            crop = goal.name.removeprefix("plant_").upper()
-            shortfall = max(0, goal.quantity - state.seeds.get(crop, 0))
-            if shortfall <= 0:
-                continue
-            seed_cost = _V4_SEED_COST.get(crop, 20)
-            qty = min(shortfall, spending // seed_cost, self._market_stock(state, crop), 10)
-            if qty > 0:
-                orders.append(["BUY_SEED", crop, int(qty)])
-                spending -= int(qty) * seed_cost
-
-        # 5. Workload-driven Dynamic Hiring (Fibonacci) at Hour 0/1
+        # 3. Workload-driven Dynamic Hiring (Prioritized before discretionary seeds/animals)
         if state.hour in {0, 1} and len(orders) < self.v4_config.max_orders:
             productive_tasks = sum(1 for t in tasks if t.priority <= 6)
+            active_animals = self._animal_count(state) + self._pending_animals(state)
+            plant_count = sum(1 for t in state.tiles if t.kind == "PLANT")
+
+            # Guaranteed baseline workers: at least 2 workers if animals or plants exist
+            base_min = 3 if active_animals > 0 or plant_count > 6 else (2 if plant_count > 0 else 1)
+
             if state.money > 10_000:
                 target_workers = self.v4_config.target_hands_midgame
             elif state.money > 2_000:
-                target_workers = min(8, max(3, (productive_tasks + 1) // 2))
+                target_workers = min(8, max(base_min, (productive_tasks + 1) // 2))
             else:
-                target_workers = min(5, max(1, (productive_tasks + 2) // 3))
+                target_workers = min(5, max(base_min, (productive_tasks + 2) // 3))
 
             current_workers = len(state.units())
             prospective = len(state.hand_positions)
@@ -465,13 +463,38 @@ class LeaderV4Engine(LeaderV2Engine):
                 hire_cost = self._hire_cost(
                     state.hires_today + prospective - len(state.hand_positions)
                 )
-                if spending < hire_cost + (wheat_price * 2):
+                if spending < hire_cost:
                     break
                 orders.append(["HIRE"])
                 spending -= hire_cost
                 prospective += 1
                 current_workers += 1
                 hires_this_turn += 1
+
+        # 4. Livestock expansion (Cow & Sheep)
+        animal_goal = next((g.quantity for g in goals if g.name == "operational_animals"), 0)
+        current_animals = self._animal_count(state) + self._pending_animals(state)
+        if current_animals < animal_goal and self._animal_chain_ready(state):
+            next_animal = "COW" if current_animals % 2 == 0 else "SHEEP"
+            cost = _ANIMAL_COST[next_animal]
+            feed_buffer_cost = 2 * wheat_price
+            if spending >= (cost + feed_buffer_cost) and len(orders) < self.v4_config.max_orders:
+                orders.append(["BUY_ANIMAL", next_animal, 1])
+                spending -= cost
+
+        # 5. Seed purchases based on portfolio goals
+        for goal in goals:
+            if not goal.name.startswith("plant_") or len(orders) >= self.v4_config.max_orders:
+                continue
+            crop = goal.name.removeprefix("plant_").upper()
+            shortfall = max(0, goal.quantity - state.seeds.get(crop, 0))
+            if shortfall <= 0:
+                continue
+            seed_cost = _V4_SEED_COST.get(crop, 20)
+            qty = min(shortfall, spending // seed_cost, self._market_stock(state, crop), 8)
+            if qty > 0:
+                orders.append(["BUY_SEED", crop, int(qty)])
+                spending -= int(qty) * seed_cost
 
         # 6. Land expansion (BUY_LAND)
         if (
@@ -501,7 +524,15 @@ class LeaderV4Engine(LeaderV2Engine):
                 continue
 
             if item == "WHEAT" and not is_closing:
-                needed_wheat = self._animal_count(state)
+                # Retain feed for placed animals plus pending animals in shed/inventories
+                total_animals = (
+                    self._animal_count(state)
+                    + self._pending_animals(state)
+                    + sum(
+                        1 for inv in state.unit_inventories for k in _ANIMAL_COST if inv.get(k, 0)
+                    )
+                )
+                needed_wheat = total_animals * 2
                 sellable = max(0, amount - needed_wheat)
             else:
                 sellable = amount

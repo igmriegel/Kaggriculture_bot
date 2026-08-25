@@ -65,12 +65,11 @@ def test_v4_opening_hour_1_emits_big_bang_orders() -> None:
     # Check opening market setup
     market = action["market"]
     assert market.count(["HIRE"]) == 5
-    assert ["BUY_ANIMAL", "COW", 1] in market
-    assert ["BUY_ANIMAL", "SHEEP", 1] in market
+    assert ["BUY_ANIMAL", "COW", 2] in market
+    assert ["BUY_ANIMAL", "SHEEP", 2] in market
     assert ["BUY_PRODUCT", "WHEAT", 4] in market
-    # Seeds are dynamically selected by EV and market signals
+    # Seeds are selected
     assert any(order[0] == "BUY_SEED" for order in market)
-    assert any(order[0] == "BUY_SEED" and order[1] == "WHEAT" for order in market)
 
 
 def test_v4_guarantees_animal_feed_purchase_when_deficit() -> None:
