@@ -115,19 +115,13 @@ def _update_remote(
         destination.mkdir(parents=True, exist_ok=True)
         _write_json(destination / "submission.json", submission)
 
-        # Lazy check for episodes listing: fetch if missing or submission is still active/pending
+        # Always fetch latest episodes listing from Kaggle API because completed
+        # submissions continue receiving public matches
         episodes_path = destination / "episodes.json"
-        is_complete = str(submission.get("status", "")).upper() in {
-            "COMPLETE",
-            "SUBMISSIONSTATUS.COMPLETE",
-        }
-        if episodes_path.is_file() and is_complete:
-            episodes_data = _read_json(episodes_path)
-        else:
-            episodes_data = _kaggle_json(
-                ["competitions", "episodes", submission_id, "--format", "json", "--quiet"]
-            )
-            _write_json(episodes_path, episodes_data)
+        episodes_data = _kaggle_json(
+            ["competitions", "episodes", submission_id, "--format", "json", "--quiet"]
+        )
+        _write_json(episodes_path, episodes_data)
 
         episodes = _records(episodes_data)
         all_submission_episodes.append((submission, destination, episodes))
