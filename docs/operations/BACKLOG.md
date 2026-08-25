@@ -23,6 +23,9 @@
    purchase planning.
 4. Run the leader-inspired engine through the official multi-seed matrix and
    promote it only if replay fidelity and safety evidence remain reproducible.
+5. Spatial Movement Optimization & Concentric Zoning: concentric crop/animal placement
+   relative to Shed (0,0), optimal worker-to-task assignment (bipartite matching),
+   and contiguous route chaining to minimize walking turns.
 
 ## P2
 
