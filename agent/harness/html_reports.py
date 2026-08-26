@@ -460,8 +460,10 @@ def _replay_economic_metrics(
         item: {
             "price_history": {},
             "plants": [],
+            "opp_plants": [],
             "harvests": [],
             "sales": [],
+            "opp_sales": [],
         }
         for item in all_items
     }
@@ -549,6 +551,53 @@ def _replay_economic_metrics(
         ):
             money_opp = float(farms[opponent_index].get("money", 0.0) or 0.0)
             daily_opp[day] = money_opp
+
+            # Parse action and market orders for opponent agent
+            rec_opp = (
+                step[opponent_index]
+                if len(step) > opponent_index and isinstance(step[opponent_index], dict)
+                else {}
+            )
+            opp_action = rec_opp.get("action")
+            if isinstance(opp_action, dict):
+                opp_commands = [
+                    opp_action.get("farmer", ["PASS"]),
+                    *opp_action.get("hands", []),
+                ]
+                for command in opp_commands:
+                    if (
+                        command
+                        and isinstance(command[0], str)
+                        and command[0] == "PLANT"
+                        and len(command) > 1
+                        and isinstance(command[1], str)
+                    ):
+                        crop_name = command[1].upper()
+                        if crop_name in item_lifecycle:
+                            item_lifecycle[crop_name]["opp_plants"].append(
+                                {"day": day, "hour": hour}
+                            )
+
+                for order in opp_action.get("market", []):
+                    if (
+                        order
+                        and isinstance(order[0], str)
+                        and order[0] == "SELL"
+                        and len(order) > 1
+                        and isinstance(order[1], str)
+                    ):
+                        item_name = order[1].upper()
+                        qty = int(order[2]) if len(order) > 2 and isinstance(order[2], int) else 1
+                        if item_name in item_lifecycle:
+                            unit_price = prices.get(item_name, 0) if isinstance(prices, dict) else 0
+                            item_lifecycle[item_name]["opp_sales"].append(
+                                {
+                                    "day": day,
+                                    "hour": hour,
+                                    "quantity": qty,
+                                    "price": unit_price,
+                                }
+                            )
 
     return {
         "daily": [daily_records[d] for d in sorted(daily_records.keys())],
@@ -1112,7 +1161,9 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
         data = items_data.get(item, {})
         prices = data.get("price_history", {})
         plants = data.get("plants", [])
+        opp_plants = data.get("opp_plants", [])
         sales = data.get("sales", [])
+        opp_sales = data.get("opp_sales", [])
 
         # SVG Price History Line Chart
         price_points = [
@@ -1124,8 +1175,8 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
         min_p = min(p[1] for p in price_points) if price_points else 0.0
         max_p = max(max(p[1] for p in price_points), 10.0) * 1.15 if price_points else 50.0
 
-        width, height = 800, 160
-        pad_l, pad_r, pad_t, pad_b = 60, 30, 20, 30
+        width, height = 800, 170
+        pad_l, pad_r, pad_t, pad_b = 60, 30, 24, 34
         plot_w = width - pad_l - pad_r
         plot_h = height - pad_t - pad_b
 
@@ -1158,7 +1209,7 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
                 f'font-size="10" font-weight="600" text-anchor="end">${y_val:,.0f}</text>'
             )
 
-        # Vertical indicator lines for Planting events (Top axis: 🌱)
+        # Vertical indicator lines for Planting events (Top axis: 🌱 Us vs 🌱 Opp)
         plant_lines = []
         plant_days = sorted(set(int(p.get("day", 0)) for p in plants))
         for p_day in plant_days:
@@ -1166,13 +1217,25 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
             plant_lines.append(
                 f'<line x1="{px:.1f}" y1="{pad_t}" x2="{px:.1f}" y2="{height - pad_b}" '
                 'stroke="#16a34a" stroke-width="2" stroke-dasharray="3,3"/>'
-                f'<rect x="{px - 10:.1f}" y="{pad_t - 15}" width="20" height="15" rx="3" '
+                f'<rect x="{px - 10:.1f}" y="{pad_t - 18}" width="20" height="15" rx="3" '
                 'fill="#dcfce7" stroke="#86efac" stroke-width="1"/>'
-                f'<text x="{px:.1f}" y="{pad_t - 4}" fill="#15803d" '
-                'font-size="10" font-weight="800" text-anchor="middle">🌱</text>'
+                f'<text x="{px:.1f}" y="{pad_t - 7}" fill="#15803d" '
+                'font-size="9" font-weight="800" text-anchor="middle">🌱</text>'
             )
 
-        # Vertical indicator lines for Selling events (Bottom axis: 💲)
+        opp_plant_days = sorted(set(int(p.get("day", 0)) for p in opp_plants))
+        for p_day in opp_plant_days:
+            px = scale_x(p_day)
+            plant_lines.append(
+                f'<line x1="{px:.1f}" y1="{pad_t}" x2="{px:.1f}" y2="{height - pad_b}" '
+                'stroke="#dc2626" stroke-width="1.5" stroke-dasharray="2,3"/>'
+                f'<rect x="{px - 10:.1f}" y="{pad_t - 18}" width="20" height="15" rx="3" '
+                'fill="#fee2e2" stroke="#fca5a5" stroke-width="1"/>'
+                f'<text x="{px:.1f}" y="{pad_t - 7}" fill="#b91c1c" '
+                'font-size="9" font-weight="800" text-anchor="middle">🌱</text>'
+            )
+
+        # Vertical indicator lines for Selling events (Bottom axis: 💲 Us vs 💲 Opp)
         sell_lines = []
         sell_days = sorted(set(int(s.get("day", 0)) for s in sales))
         for s_day in sell_days:
@@ -1180,10 +1243,22 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
             sell_lines.append(
                 f'<line x1="{sx:.1f}" y1="{pad_t}" x2="{sx:.1f}" y2="{height - pad_b}" '
                 'stroke="#0284c7" stroke-width="2" stroke-dasharray="2,2"/>'
-                f'<rect x="{sx - 10:.1f}" y="{height - pad_b + 2}" width="20" height="15" rx="3" '
+                f'<rect x="{sx - 10:.1f}" y="{height - pad_b + 3}" width="20" height="15" rx="3" '
                 'fill="#e0f2fe" stroke="#7dd3fc" stroke-width="1"/>'
-                f'<text x="{sx:.1f}" y="{height - pad_b + 13}" fill="#0369a1" '
-                'font-size="10" font-weight="800" text-anchor="middle">💲</text>'
+                f'<text x="{sx:.1f}" y="{height - pad_b + 14}" fill="#0369a1" '
+                'font-size="9" font-weight="800" text-anchor="middle">💲</text>'
+            )
+
+        opp_sell_days = sorted(set(int(s.get("day", 0)) for s in opp_sales))
+        for s_day in opp_sell_days:
+            sx = scale_x(s_day)
+            sell_lines.append(
+                f'<line x1="{sx:.1f}" y1="{pad_t}" x2="{sx:.1f}" y2="{height - pad_b}" '
+                'stroke="#ea580c" stroke-width="1.5" stroke-dasharray="2,3"/>'
+                f'<rect x="{sx - 10:.1f}" y="{height - pad_b + 3}" width="20" height="15" rx="3" '
+                'fill="#ffedd5" stroke="#fdba74" stroke-width="1"/>'
+                f'<text x="{sx:.1f}" y="{height - pad_b + 14}" fill="#c2410c" '
+                'font-size="9" font-weight="800" text-anchor="middle">💲</text>'
             )
 
         circles = []
@@ -1206,91 +1281,110 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
             f'<path d="{path_pts}" fill="none" stroke="#0284c7" '
             'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
             f"{''.join(circles)}"
-            f'<text x="{scale_x(0):.1f}" y="{height - 8}" fill="#64748b" '
+            f'<text x="{scale_x(0):.1f}" y="{height - 6}" fill="#64748b" '
             'font-size="10" text-anchor="start">Day 0</text>'
-            f'<text x="{scale_x(15):.1f}" y="{height - 8}" fill="#64748b" '
+            f'<text x="{scale_x(15):.1f}" y="{height - 6}" fill="#64748b" '
             'font-size="10" text-anchor="middle">Day 15</text>'
-            f'<text x="{scale_x(30):.1f}" y="{height - 8}" fill="#64748b" '
+            f'<text x="{scale_x(30):.1f}" y="{height - 6}" fill="#64748b" '
             'font-size="10" text-anchor="end">Day 30</text>'
             "</svg>"
         )
 
-        # Plant Locations Summary
         plant_summary = ""
-        if plants:
-            plant_rows = "".join(
-                f"<tr><td>Day {p['day']:02d} (Hour {p.get('hour', 0):02d})</td>"
+        plant_header = f"🌱 Plant Activity (Us: {len(plants)} · Opp: {len(opp_plants)})"
+        plant_rows = []
+        for p in plants[:8]:
+            d_str = f"D{p['day']:02d} H{p.get('hour', 0):02d}"
+            plant_rows.append(
+                f"<tr><td><span style='color:#16a34a; font-weight:700;'>Us</span> ({d_str})</td>"
                 f"<td><code>({p['pos'][0]}, {p['pos'][1]})</code></td></tr>"
-                for p in plants[:12]
             )
-            extra = (
-                f"<p style='font-size:0.8rem; color:#64748b;'>+ {len(plants) - 12} more plants</p>"
-                if len(plants) > 12
-                else ""
+        for p in opp_plants[:8]:
+            d_str = f"D{p['day']:02d} H{p.get('hour', 0):02d}"
+            plant_rows.append(
+                f"<tr><td><span style='color:#dc2626; font-weight:700;'>Opp</span> ({d_str})</td>"
+                "<td><code>[Opponent Farm]</code></td></tr>"
             )
+
+        if plant_rows:
             plant_summary = (
                 "<details class='sub-details' style='flex:1; min-width:260px; margin:0;'>"
-                f"<summary style='font-size:0.95rem; color:#1e293b;'>"
-                f"🌱 Plant Locations ({len(plants)} events)</summary>"
+                f"<summary style='font-size:0.95rem; color:#1e293b;'>{plant_header}</summary>"
                 "<div style='margin-top:0.5rem; overflow-x:auto;'>"
-                "<table><thead><tr><th>Time</th><th>Tile Coordinate</th></tr></thead>"
-                f"<tbody>{plant_rows}</tbody></table>{extra}</div></details>"
+                "<table><thead><tr><th>Agent & Time</th><th>Target Tile</th></tr></thead>"
+                f"<tbody>{''.join(plant_rows)}</tbody></table></div></details>"
             )
         else:
             plant_summary = (
                 "<details class='sub-details' style='flex:1; min-width:260px; margin:0;'>"
-                "<summary style='font-size:0.95rem; color:#64748b;'>"
-                "🌱 Plant Locations (0 events)</summary>"
+                f"<summary style='font-size:0.95rem; color:#64748b;'>{plant_header}</summary>"
                 "<p style='font-size:0.85rem; color:#94a3b8; font-style:italic; "
-                "margin-top:0.5rem;'>"
-                "No field planting (animal or unplanted item)</p></details>"
+                "margin-top:0.5rem;'>No field planting events</p></details>"
             )
 
-        # Sales Events Summary
-        sales_summary = ""
-        if sales:
-            total_sold = sum(s.get("quantity", 1) for s in sales)
-            total_rev = sum(s.get("quantity", 1) * s.get("price", 0) for s in sales)
-            sale_rows = "".join(
-                f"<tr><td>Day {s['day']:02d} (Hour {s.get('hour', 0):02d})</td>"
-                f"<td>{s['quantity']} units</td>"
-                f"<td>${s.get('price', 0):,.0f}</td>"
-                f"<td><strong>${s['quantity'] * s.get('price', 0):,.0f}</strong></td></tr>"
-                for s in sales[:12]
+        # Sales Events Summary (Us vs Opponent)
+        total_sold = sum(s.get("quantity", 1) for s in sales)
+        total_rev = sum(s.get("quantity", 1) * s.get("price", 0) for s in sales)
+        opp_total_sold = sum(s.get("quantity", 1) for s in opp_sales)
+        opp_total_rev = sum(s.get("quantity", 1) * s.get("price", 0) for s in opp_sales)
+
+        sales_header = (
+            f"💰 Sales (Us: {total_sold} sold, ${total_rev:,.0f} · "
+            f"Opp: {opp_total_sold} sold, ${opp_total_rev:,.0f})"
+        )
+        sale_rows = []
+        for s in sales[:6]:
+            d_str = f"D{s['day']:02d} H{s.get('hour', 0):02d}"
+            rev = s["quantity"] * s.get("price", 0)
+            sale_rows.append(
+                f"<tr><td><span style='color:#0284c7; font-weight:700;'>Us</span> ({d_str})</td>"
+                f"<td>{s['quantity']} u</td><td>${s.get('price', 0):,.0f}</td>"
+                f"<td><strong>${rev:,.0f}</strong></td></tr>"
             )
-            extra = (
-                f"<p style='font-size:0.8rem; color:#64748b;'>+ {len(sales) - 12} more sales</p>"
-                if len(sales) > 12
-                else ""
+        for s in opp_sales[:6]:
+            d_str = f"D{s['day']:02d} H{s.get('hour', 0):02d}"
+            rev = s["quantity"] * s.get("price", 0)
+            sale_rows.append(
+                f"<tr><td><span style='color:#ea580c; font-weight:700;'>Opp</span> ({d_str})</td>"
+                f"<td>{s['quantity']} u</td><td>${s.get('price', 0):,.0f}</td>"
+                f"<td><strong>${rev:,.0f}</strong></td></tr>"
             )
+
+        if sale_rows:
             sales_summary = (
                 "<details class='sub-details' style='flex:1.2; min-width:320px; margin:0;'>"
-                f"<summary style='font-size:0.95rem; color:#1e293b;'>"
-                f"💰 Sales History ({total_sold} sold · ${total_rev:,.0f} rev)</summary>"
+                f"<summary style='font-size:0.95rem; color:#1e293b;'>{sales_header}</summary>"
                 "<div style='margin-top:0.5rem; overflow-x:auto;'>"
-                "<table><thead><tr><th>Time</th><th>Qty</th><th>Unit Price</th>"
+                "<table><thead><tr><th>Agent & Time</th><th>Qty</th><th>Unit Price</th>"
                 "<th>Revenue</th></tr></thead>"
-                f"<tbody>{sale_rows}</tbody></table>{extra}</div></details>"
+                f"<tbody>{''.join(sale_rows)}</tbody></table></div></details>"
             )
         else:
             sales_summary = (
                 "<details class='sub-details' style='flex:1.2; min-width:320px; margin:0;'>"
-                "<summary style='font-size:0.95rem; color:#64748b;'>"
-                "💰 Sales History (0 sales)</summary>"
+                f"<summary style='font-size:0.95rem; color:#64748b;'>{sales_header}</summary>"
                 "<p style='font-size:0.85rem; color:#94a3b8; font-style:italic; "
-                "margin-top:0.5rem;'>"
-                f"No market sales recorded for {item}</p></details>"
+                f"margin-top:0.5rem;'>No market sales recorded for {item}</p></details>"
             )
 
+        legend_badges = (
+            '<span style="font-size:0.85rem; color:#64748b; font-weight:normal; '
+            'display:flex; gap:0.75rem;">'
+            '<span style="color:#16a34a; font-weight:600;">🌱 Plant (Us)</span> '
+            '<span style="color:#dc2626; font-weight:600;">🌱 Plant (Opp)</span> '
+            '<span style="color:#0284c7; font-weight:600;">💲 Sale (Us)</span> '
+            '<span style="color:#ea580c; font-weight:600;">💲 Sale (Opp)</span>'
+            "</span>"
+        )
         item_sections.append(
             '<div style="background:var(--card-bg); border:1px solid var(--border); '
             'border-radius:8px; padding:1.25rem; margin-bottom:1.5rem;">'
             '<h3 style="margin-top:0; color:#0f172a; display:flex; '
             'justify-content:space-between; align-items:center;">'
-            f'<span>📦 {item}</span><span style="font-size:0.9rem; '
-            'color:#64748b; font-weight:normal;">Price & Flow Lifecycle</span></h3>'
+            f"<span>📦 {item}</span>"
+            f"{legend_badges}</h3>"
             '<div style="margin-bottom:1rem;"><strong style="font-size:0.85rem; color:#475569;">'
-            f"Price Curve Evolution (Day 0–30):</strong>{svg}</div>"
+            f"Price Curve & Activity Lifecycle (Day 0–30):</strong>{svg}</div>"
             '<div style="display:flex; flex-wrap:wrap; gap:1.5rem; margin-top:1rem;">'
             f"{plant_summary}{sales_summary}</div>"
             "</div>"
@@ -1298,7 +1392,7 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
 
     all_content = "".join(item_sections)
     return (
-        '<details class="item-lifecycle-details">'
+        '<details class="item-lifecycle-details" open>'
         f"<summary>Item-by-Item Price, Plant & Sale Flow ({len(all_items)} items)</summary>"
         f"<div style='margin-top: 1.25rem;'>{all_content}</div></details>"
     )

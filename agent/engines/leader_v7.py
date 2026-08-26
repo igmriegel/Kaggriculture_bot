@@ -127,7 +127,8 @@ class LeaderV7Engine(LeaderV6Engine):
                 else (0.80 if opp_supply.get(crop, 0) >= 8 else 1.0)
             )
 
-            # Early liquidity factor: when cash is constrained (<$2000), prioritize instant cash infusion
+            # Early liquidity factor: when cash is constrained (<$2000),
+            # prioritize instant cash infusion
             if state.money < 2000 and len(state.unlocked_quadrants) < 2:
                 # First harvest cash burst
                 first_yield_qty = (
