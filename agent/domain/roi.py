@@ -92,15 +92,45 @@ def estimate_opponent_expected_harvests(opponent_tiles: tuple[Tile, ...]) -> dic
     return projected
 
 
+def calculate_dynamic_harvest_price(
+    crop: str,
+    state: NormalizedState,
+    harvest_day: int,
+    *,
+    overrides: Mapping[str, Mapping[str, object]] | None = None,
+) -> int:
+    """Project market price at the exact moment this crop batch will be harvested."""
+    from agent.domain.economics import PRODUCTS, SHOPS
+
+    turns_to_harvest = max(0, (harvest_day - state.day) * 24 - state.hour)
+    projected_market = dict(state.market_inventory)
+
+    # 1. Town consumption drainage projection up to harvest turn
+    for future_step in range(state.step, state.step + turns_to_harvest):
+        if future_step % 4 == 0:
+            for shop in state.shops:
+                for item in SHOPS.get(shop, ()):
+                    projected_market[item] -= 2 if len(SHOPS[shop]) == 1 else 1
+        if future_step % 24 == 0:
+            for item in PRODUCTS[:-1]:
+                projected_market[item] -= 1
+
+    # 2. Opponent supply arriving before/at harvest
+    opp_harvests = estimate_opponent_expected_harvests(state.opponent_tiles)
+    product = str(CROPS_SPEC[crop]["product"])
+    projected_inv = projected_market.get(product, MARKET_I0) + opp_harvests.get(product, 0)
+
+    return market_price(product, projected_inv, overrides)
+
+
 def evaluate_crops_roi(
     state: NormalizedState,
     *,
+    fertilizer_available: bool = False,
     overrides: Mapping[str, Mapping[str, object]] | None = None,
 ) -> dict[str, CropROI]:
-    """Calculate expected ROI and profitability for each crop given current day and market state."""
-    opp_harvests = estimate_opponent_expected_harvests(state.opponent_tiles)
+    """Calculate expected crop ROI using dynamic harvest-time forecasting."""
     results: dict[str, CropROI] = {}
-
     days_remaining = max(0, TOTAL_SEASON_DAYS - state.day)
 
     for crop, spec in CROPS_SPEC.items():
@@ -108,7 +138,9 @@ def evaluate_crops_roi(
         first_yield = int(spec["first_yield_day"])
         max_yield_day = int(spec["max_yield_day"])
         seed_cost = int(spec["seed"])
-        product = str(spec["product"])
+        is_ongoing = bool(spec["ongoing"])
+        interval = int(spec["interval"])
+        base_max_yield = int(spec["max_yield"])
 
         if state.day > closing_day:
             results[crop] = CropROI(
@@ -122,31 +154,30 @@ def evaluate_crops_roi(
             )
             continue
 
-        current_market_inv = state.market_inventory.get(product, MARKET_I0)
-        opp_supply = opp_harvests.get(product, 0)
-        projected_inv = current_market_inv + opp_supply
-        est_unit_price = market_price(product, projected_inv, overrides)
-
-        is_ongoing = bool(spec["ongoing"])
-        interval = int(spec["interval"])
-        max_yield = int(spec["max_yield"])
+        first_harvest_day = min(TOTAL_SEASON_DAYS, state.day + first_yield)
+        est_unit_price = calculate_dynamic_harvest_price(
+            crop, state, first_harvest_day, overrides=overrides
+        )
 
         if not is_ongoing:
             # Yield units accumulate during window [ (max_yield_day+1)//2, max_yield_day ]
             window_len = max_yield_day - ((max_yield_day + 1) // 2) + 1
-            yield_units = min(max_yield, window_len)
-            revenue = yield_units * est_unit_price
-            cycle_days = max_yield_day
+            yield_units = min(base_max_yield, window_len)
+            revenue = float(yield_units * est_unit_price)
+            cycle_days = first_yield
             profit = revenue - seed_cost
-            # Capital velocity: profit generated per seed dollar invested per cycle day
-            profit_per_day = profit / (seed_cost * max(1, cycle_days))
+            # Land yield velocity: Net profit generated per tile per day of land occupancy
+            profit_per_day = profit / max(1, cycle_days)
         else:
             days_productive = max(0, days_remaining - first_yield)
             harvests = 1 + (days_productive // max(1, interval + 1))
-            total_units = harvests * max_yield
-            revenue = total_units * est_unit_price
+            # Ongoing crops yield 2 units base or 4 units if fertilized
+            per_harvest_yield = 3.5 if fertilizer_available else 2.0
+            total_units = harvests * per_harvest_yield
+            revenue = float(total_units * est_unit_price)
             profit = revenue - seed_cost
-            profit_per_day = profit / (seed_cost * max(1, days_remaining))
+            effective_cycle_days = first_yield + max(0, harvests - 1) * (interval + 1)
+            profit_per_day = profit / max(1, effective_cycle_days)
 
         results[crop] = CropROI(
             crop=crop,
