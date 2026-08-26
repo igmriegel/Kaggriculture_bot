@@ -234,11 +234,39 @@ def _economic_metrics(records: list[TurnRecord]) -> dict[str, Any]:
     harvested_actions = 0
     shed_operations = 0
     idle_actions = 0
+    all_items = [
+        "WHEAT",
+        "CARROT",
+        "TOMATO",
+        "STRAWBERRY",
+        "MELON",
+        "MILK",
+        "WOOL",
+        "EGG",
+        "FERTILIZER",
+    ]
+    item_lifecycle: dict[str, dict[str, Any]] = {
+        item: {
+            "price_history": {},
+            "plants": [],
+            "harvests": [],
+            "sales": [],
+        }
+        for item in all_items
+    }
+
     for record in records:
         before = record.observation_before
         after = record.observation_after
         raw_day = before.get("day")
         day = raw_day if isinstance(raw_day, int) else -1
+        hour = before.get("hour", 0)
+        prices = before.get("prices", {})
+        if isinstance(prices, dict):
+            for item in all_items:
+                if item in prices and day not in item_lifecycle[item]["price_history"]:
+                    item_lifecycle[item]["price_history"][day] = prices[item]
+
         if day not in daily:
             daily[day] = {
                 "money_start": before.get("money"),
@@ -248,16 +276,31 @@ def _economic_metrics(records: list[TurnRecord]) -> dict[str, Any]:
             }
         entry = daily[day]
         entry["money_end"] = after.get("money", entry["money_end"])
+
+        farmer_pos = before.get("farmer")
+        hands_pos = before.get("hands", [])
+        worker_positions = [farmer_pos] + (hands_pos if isinstance(hands_pos, list) else [])
+
         commands = [
             record.action_sent.get("farmer", ["PASS"]),
             *record.action_sent.get("hands", []),
         ]
-        for command in commands:
+        for w_idx, command in enumerate(commands):
             operation = command[0] if command and isinstance(command[0], str) else "PASS"
             entry["action_counts"][operation] += 1
             harvested_actions += int(operation == "HARVEST")
             shed_operations += int(operation in {"PICKUP", "DROP"})
             idle_actions += int(operation == "PASS")
+
+            raw_pos = worker_positions[w_idx] if w_idx < len(worker_positions) else None
+            pos = list(raw_pos) if isinstance(raw_pos, list | tuple) else [0, 0]
+            if operation == "PLANT" and len(command) > 1 and isinstance(command[1], str):
+                crop_name = command[1].upper()
+                if crop_name in item_lifecycle:
+                    item_lifecycle[crop_name]["plants"].append(
+                        {"day": day, "hour": hour, "pos": pos}
+                    )
+
         for order in record.action_sent.get("market", []):
             if not order or not isinstance(order[0], str):
                 continue
@@ -266,6 +309,19 @@ def _economic_metrics(records: list[TurnRecord]) -> dict[str, Any]:
             entry["market_orders"][operation] += quantity
             if operation in {"BUY_ANIMAL", "BUY_PRODUCT", "BUY_SEED", "HIRE", "BUY_LAND"}:
                 capital[operation] += quantity
+            if operation == "SELL" and len(order) > 1 and isinstance(order[1], str):
+                item_name = order[1].upper()
+                if item_name in item_lifecycle:
+                    unit_price = prices.get(item_name, 0) if isinstance(prices, dict) else 0
+                    item_lifecycle[item_name]["sales"].append(
+                        {
+                            "day": day,
+                            "hour": hour,
+                            "quantity": quantity,
+                            "price": unit_price,
+                        }
+                    )
+
     days = []
     for day, entry in sorted(daily.items()):
         start = entry["money_start"]
@@ -288,6 +344,7 @@ def _economic_metrics(records: list[TurnRecord]) -> dict[str, Any]:
         "harvested_actions": harvested_actions,
         "shed_operations": shed_operations,
         "idle_actions": idle_actions,
+        "items": item_lifecycle,
     }
 
 

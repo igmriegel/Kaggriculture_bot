@@ -445,6 +445,26 @@ def _replay_economic_metrics(
     daily_our: dict[int, float] = {}
     daily_opp: dict[int, float] = {}
     daily_records: dict[int, dict[str, Any]] = {}
+    all_items = [
+        "WHEAT",
+        "CARROT",
+        "TOMATO",
+        "STRAWBERRY",
+        "MELON",
+        "MILK",
+        "WOOL",
+        "EGG",
+        "FERTILIZER",
+    ]
+    item_lifecycle: dict[str, dict[str, Any]] = {
+        item: {
+            "price_history": {},
+            "plants": [],
+            "harvests": [],
+            "sales": [],
+        }
+        for item in all_items
+    }
 
     for step in steps:
         if not isinstance(step, list) or len(step) <= agent_index:
@@ -454,9 +474,19 @@ def _replay_economic_metrics(
         if not isinstance(obs, dict):
             continue
         day = int(obs.get("day", 0))
+        hour = int(obs.get("hour", 0))
+        prices = (
+            obs.get("market", {}).get("prices", {}) if isinstance(obs.get("market"), dict) else {}
+        )
+        if isinstance(prices, dict):
+            for item in all_items:
+                if item in prices and day not in item_lifecycle[item]["price_history"]:
+                    item_lifecycle[item]["price_history"][day] = prices[item]
+
         farms = obs.get("farms", [])
         if len(farms) > agent_index and isinstance(farms[agent_index], dict):
-            money_our = float(farms[agent_index].get("money", 0.0) or 0.0)
+            our_farm = farms[agent_index]
+            money_our = float(our_farm.get("money", 0.0) or 0.0)
             daily_our[day] = money_our
             if day not in daily_records:
                 daily_records[day] = {
@@ -468,6 +498,10 @@ def _replay_economic_metrics(
                 }
             daily_records[day]["money_end"] = money_our
 
+            farmer_pos = our_farm.get("farmer")
+            hands_pos = our_farm.get("hands", [])
+            worker_positions = [farmer_pos] + (hands_pos if isinstance(hands_pos, list) else [])
+
             # Parse action and market orders for our agent
             action = rec_our.get("action")
             if isinstance(action, dict):
@@ -475,13 +509,38 @@ def _replay_economic_metrics(
                     action.get("farmer", ["PASS"]),
                     *action.get("hands", []),
                 ]
-                for command in commands:
+                for w_idx, command in enumerate(commands):
                     if command and isinstance(command[0], str):
-                        daily_records[day]["action_counts"][command[0]] += 1
+                        op = command[0]
+                        daily_records[day]["action_counts"][op] += 1
+                        raw_pos = worker_positions[w_idx] if w_idx < len(worker_positions) else None
+                        pos = list(raw_pos) if isinstance(raw_pos, list | tuple) else [0, 0]
+                        if op == "PLANT" and len(command) > 1 and isinstance(command[1], str):
+                            crop_name = command[1].upper()
+                            if crop_name in item_lifecycle:
+                                item_lifecycle[crop_name]["plants"].append(
+                                    {"day": day, "hour": hour, "pos": pos}
+                                )
+
                 for order in action.get("market", []):
                     if order and isinstance(order[0], str):
+                        op = order[0]
                         qty = int(order[2]) if len(order) > 2 and isinstance(order[2], int) else 1
-                        daily_records[day]["market_orders"][order[0]] += qty
+                        daily_records[day]["market_orders"][op] += qty
+                        if op == "SELL" and len(order) > 1 and isinstance(order[1], str):
+                            item_name = order[1].upper()
+                            if item_name in item_lifecycle:
+                                unit_price = (
+                                    prices.get(item_name, 0) if isinstance(prices, dict) else 0
+                                )
+                                item_lifecycle[item_name]["sales"].append(
+                                    {
+                                        "day": day,
+                                        "hour": hour,
+                                        "quantity": qty,
+                                        "price": unit_price,
+                                    }
+                                )
 
         if (
             opponent_index is not None
@@ -495,6 +554,7 @@ def _replay_economic_metrics(
         "daily": [daily_records[d] for d in sorted(daily_records.keys())],
         "daily_our_money": [daily_our.get(d, 0.0) for d in range(31) if d in daily_our],
         "daily_opp_money": [daily_opp.get(d, 0.0) for d in range(31) if d in daily_opp],
+        "items": item_lifecycle,
     }
 
 
@@ -744,6 +804,8 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
         f"<small>Fallbacks: {_metric(episode.metrics, 'fallbacks_inferred')}</small></div>"
         "</section>"
         f"{_score_evolution_chart_html(episode)}"
+        f"{_item_lifecycle_charts_html(episode)}"
+        f"{_harvest_waiting_times_summary_html()}"
         f"{daily_table}"
         f"{action_summary}"
         f"{_behavior_details_html(episode)}"
@@ -917,13 +979,294 @@ def _daily_economic_table_html(episode: ReportEpisode) -> str:
         )
     table_rows = "".join(rows)
     return (
-        '<section class="behavior-details" aria-label="Daily Economic Evolution">'
-        "<h2>Daily Farm & Financial Evolution (30 Days)</h2>"
-        "<div style='overflow-x:auto;'><table><thead><tr>"
+        '<details class="economic-details" open>'
+        "<summary>Daily Farm & Financial Evolution (30 Days)</summary>"
+        "<div style='overflow-x:auto; margin-top: 1rem;'><table><thead><tr>"
         "<th>Day</th><th>Start Cash</th><th>End Cash</th><th>Delta ($)</th>"
         "<th>Hires</th><th>Waters</th><th>Harvests</th><th>Plants</th><th>Sells</th>"
         "</tr></thead>"
+        f"<tbody>{table_rows}</tbody></table></div></details>"
+    )
+
+
+def _harvest_waiting_times_summary_html() -> str:
+    """Render a comprehensive reference summary of harvest waiting times for crops and animals."""
+    timing_data = [
+        (
+            "WHEAT",
+            "Crop (Single)",
+            "2 days (48h)",
+            "None",
+            "$10",
+            "$25",
+            "Fast cash & primary animal feed",
+        ),
+        (
+            "CARROT",
+            "Crop (Single)",
+            "2 days (48h)",
+            "None",
+            "$20",
+            "$35",
+            "Fast baseline starter crop",
+        ),
+        (
+            "TOMATO",
+            "Crop (Regrowable)",
+            "8 days (192h)",
+            "1 day (24h)",
+            "$50",
+            "$60",
+            "Daily recurring yield after maturity",
+        ),
+        (
+            "STRAWBERRY",
+            "Crop (Regrowable)",
+            "10 days (240h)",
+            "2 days (48h)",
+            "$100",
+            "$120",
+            "High-value recurring harvests (2x/turn)",
+        ),
+        (
+            "MELON",
+            "Crop (Single)",
+            "10 days (240h)",
+            "None",
+            "$80",
+            "$250",
+            "Massive single harvest payout ($1,500/tile)",
+        ),
+        (
+            "COW",
+            "Animal (Pasture)",
+            "8 days (192h)",
+            "2 days (48h)",
+            "$400",
+            "$160 (Milk) + $100 (Fert)",
+            "Produces Milk every 2d + Fertilizer",
+        ),
+        (
+            "SHEEP",
+            "Animal (Pasture)",
+            "6 days (144h)",
+            "3 days (72h)",
+            "$400",
+            "$200 (Wool) + $100 (Fert)",
+            "Produces Wool every 3d + Fertilizer",
+        ),
+        (
+            "GOOSE",
+            "Animal (Coop)",
+            "4 days (96h)",
+            "1 day (24h)",
+            "$300",
+            "$30 (Egg) + $100 (Fert)",
+            "Produces Eggs daily + Fertilizer",
+        ),
+    ]
+    rows = []
+    for item, cat, first_wait, regrow_wait, cost, price, notes in timing_data:
+        rows.append(
+            f"<tr><td><strong>{item}</strong></td><td>{cat}</td>"
+            f"<td><span class='badge-action productive'>{first_wait}</span></td>"
+            f"<td>{regrow_wait}</td><td>{cost}</td><td><strong>{price}</strong></td>"
+            f"<td style='font-size:0.85rem; color:#475569;'>{notes}</td></tr>"
+        )
+    table_rows = "".join(rows)
+    return (
+        '<section class="chart-container" aria-label="Harvest Waiting Times Reference">'
+        '<div class="chart-header">'
+        '<div class="chart-title">Production Waiting Times & Harvest Cycles Reference</div>'
+        "</div>"
+        "<div style='overflow-x:auto;'><table><thead><tr>"
+        "<th>Item / Asset</th><th>Category</th><th>Initial Maturity Wait</th>"
+        "<th>Regrowth / Cycle Interval</th><th>Buy Cost</th>"
+        "<th>Product Base Value</th><th>Strategic Role</th>"
+        "</tr></thead>"
         f"<tbody>{table_rows}</tbody></table></div></section>"
+    )
+
+
+def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
+    """Generate per-item lifecycle charts showing Price History, Plants, and Sales."""
+    economic = _metric(episode.metrics, "economic", {})
+    items_data = economic.get("items", {}) if isinstance(economic, dict) else {}
+    if not items_data:
+        return ""
+
+    all_items = [
+        "WHEAT",
+        "CARROT",
+        "TOMATO",
+        "STRAWBERRY",
+        "MELON",
+        "MILK",
+        "WOOL",
+        "EGG",
+        "FERTILIZER",
+    ]
+
+    item_sections = []
+    for item in all_items:
+        data = items_data.get(item, {})
+        prices = data.get("price_history", {})
+        plants = data.get("plants", [])
+        sales = data.get("sales", [])
+
+        # SVG Price History Line Chart
+        price_points = [
+            (int(d), float(p)) for d, p in sorted(prices.items(), key=lambda x: int(x[0]))
+        ]
+        if not price_points:
+            price_points = [(0, 0.0), (30, 0.0)]
+
+        min_p = min(p[1] for p in price_points) if price_points else 0.0
+        max_p = max(max(p[1] for p in price_points), 10.0) * 1.15 if price_points else 50.0
+
+        width, height = 800, 160
+        pad_l, pad_r, pad_t, pad_b = 60, 30, 20, 30
+        plot_w = width - pad_l - pad_r
+        plot_h = height - pad_t - pad_b
+
+        def scale_x(day: float, pad_l: float = pad_l, plot_w: float = plot_w) -> float:
+            return pad_l + (day / 30.0) * plot_w
+
+        def scale_y(
+            val: float,
+            min_p: float = min_p,
+            max_p: float = max_p,
+            pad_t: float = pad_t,
+            plot_h: float = plot_h,
+        ) -> float:
+            norm = (val - min_p) / max(1.0, max_p - min_p)
+            return pad_t + (1.0 - norm) * plot_h
+
+        path_pts = " ".join(
+            f"{'M' if i == 0 else 'L'} {scale_x(d):.1f} {scale_y(p):.1f}"
+            for i, (d, p) in enumerate(price_points)
+        )
+
+        grid_lines = []
+        for step in (0, 0.5, 1.0):
+            y_val = min_p + (max_p - min_p) * step
+            y_pos = scale_y(y_val)
+            grid_lines.append(
+                f'<line x1="{pad_l}" y1="{y_pos:.1f}" x2="{width - pad_r}" y2="{y_pos:.1f}" '
+                'stroke="#f1f5f9" stroke-width="1"/>'
+                f'<text x="{pad_l - 8}" y="{y_pos + 4:.1f}" fill="#64748b" '
+                f'font-size="10" font-weight="600" text-anchor="end">${y_val:,.0f}</text>'
+            )
+
+        circles = []
+        for d, p in price_points:
+            if d in {0, 10, 20, 30} or (d, p) == price_points[-1]:
+                cx, cy = scale_x(d), scale_y(p)
+                circles.append(
+                    f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="4" '
+                    'fill="#0284c7" stroke="#ffffff" stroke-width="1.5"/>'
+                    f'<text x="{cx:.1f}" y="{cy - 6:.1f}" fill="#0369a1" '
+                    f'font-size="9" font-weight="700" text-anchor="middle">${p:,.0f}</text>'
+                )
+
+        svg = (
+            f'<svg viewBox="0 0 {width} {height}" '
+            'style="width:100%; height:auto; display:block;" xmlns="http://www.w3.org/2000/svg">'
+            f"{''.join(grid_lines)}"
+            f'<path d="{path_pts}" fill="none" stroke="#0284c7" '
+            'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
+            f"{''.join(circles)}"
+            f'<text x="{scale_x(0):.1f}" y="{height - 8}" fill="#64748b" '
+            'font-size="10" text-anchor="start">Day 0</text>'
+            f'<text x="{scale_x(15):.1f}" y="{height - 8}" fill="#64748b" '
+            'font-size="10" text-anchor="middle">Day 15</text>'
+            f'<text x="{scale_x(30):.1f}" y="{height - 8}" fill="#64748b" '
+            'font-size="10" text-anchor="end">Day 30</text>'
+            "</svg>"
+        )
+
+        # Plant Locations Summary
+        plant_summary = ""
+        if plants:
+            plant_rows = "".join(
+                f"<tr><td>Day {p['day']:02d} (Hour {p.get('hour', 0):02d})</td>"
+                f"<td><code>({p['pos'][0]}, {p['pos'][1]})</code></td></tr>"
+                for p in plants[:12]
+            )
+            extra = (
+                f"<p style='font-size:0.8rem; color:#64748b;'>+ {len(plants) - 12} more plants</p>"
+                if len(plants) > 12
+                else ""
+            )
+            plant_summary = (
+                "<div style='flex:1; min-width:260px;'>"
+                f"<h4 style='margin:0.5rem 0; font-size:0.95rem; color:#1e293b;'>"
+                f"🌱 Plant Locations ({len(plants)} events)</h4>"
+                "<table><thead><tr><th>Time</th><th>Tile Coordinate</th></tr></thead>"
+                f"<tbody>{plant_rows}</tbody></table>{extra}</div>"
+            )
+        else:
+            plant_summary = (
+                "<div style='flex:1; min-width:260px;'>"
+                "<h4 style='margin:0.5rem 0; font-size:0.95rem; color:#64748b;'>"
+                "🌱 Plant Locations</h4>"
+                "<p style='font-size:0.85rem; color:#94a3b8; font-style:italic;'>"
+                "No field planting (animal or unplanted item)</p></div>"
+            )
+
+        # Sales Events Summary
+        sales_summary = ""
+        if sales:
+            total_sold = sum(s.get("quantity", 1) for s in sales)
+            total_rev = sum(s.get("quantity", 1) * s.get("price", 0) for s in sales)
+            sale_rows = "".join(
+                f"<tr><td>Day {s['day']:02d} (Hour {s.get('hour', 0):02d})</td>"
+                f"<td>{s['quantity']} units</td>"
+                f"<td>${s.get('price', 0):,.0f}</td>"
+                f"<td><strong>${s['quantity'] * s.get('price', 0):,.0f}</strong></td></tr>"
+                for s in sales[:12]
+            )
+            extra = (
+                f"<p style='font-size:0.8rem; color:#64748b;'>+ {len(sales) - 12} more sales</p>"
+                if len(sales) > 12
+                else ""
+            )
+            sales_summary = (
+                "<div style='flex:1.2; min-width:320px;'>"
+                f"<h4 style='margin:0.5rem 0; font-size:0.95rem; color:#1e293b;'>"
+                f"💰 Sales History ({total_sold} sold · ${total_rev:,.0f} rev)</h4>"
+                "<table><thead><tr><th>Time</th><th>Qty</th><th>Unit Price</th>"
+                "<th>Revenue</th></tr></thead>"
+                f"<tbody>{sale_rows}</tbody></table>{extra}</div>"
+            )
+        else:
+            sales_summary = (
+                "<div style='flex:1.2; min-width:320px;'>"
+                "<h4 style='margin:0.5rem 0; font-size:0.95rem; color:#64748b;'>"
+                "💰 Sales History</h4>"
+                f"<p style='font-size:0.85rem; color:#94a3b8; font-style:italic;'>"
+                f"No market sales recorded for {item}</p></div>"
+            )
+
+        item_sections.append(
+            '<div style="background:var(--card-bg); border:1px solid var(--border); '
+            'border-radius:8px; padding:1.25rem; margin-bottom:1.5rem;">'
+            '<h3 style="margin-top:0; color:#0f172a; display:flex; '
+            'justify-content:space-between; align-items:center;">'
+            f'<span>📦 {item}</span><span style="font-size:0.9rem; '
+            'color:#64748b; font-weight:normal;">Price & Flow Lifecycle</span></h3>'
+            '<div style="margin-bottom:1rem;"><strong style="font-size:0.85rem; color:#475569;">'
+            f"Price Curve Evolution (Day 0–30):</strong>{svg}</div>"
+            '<div style="display:flex; flex-wrap:wrap; gap:1.5rem; margin-top:1rem;">'
+            f"{plant_summary}{sales_summary}</div>"
+            "</div>"
+        )
+
+    all_content = "".join(item_sections)
+    return (
+        '<details class="item-lifecycle-details" open>'
+        f"<summary>Item-by-Item Price, Plant & Sale Flow ({len(all_items)} items)</summary>"
+        f"<div style='margin-top: 1.25rem;'>{all_content}</div></details>"
     )
 
 
