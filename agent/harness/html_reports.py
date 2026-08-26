@@ -1158,6 +1158,20 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
                 f'font-size="10" font-weight="600" text-anchor="end">${y_val:,.0f}</text>'
             )
 
+        # Vertical indicator lines for Planting events
+        plant_lines = []
+        plant_days = sorted(set(int(p.get("day", 0)) for p in plants))
+        for p_day in plant_days:
+            px = scale_x(p_day)
+            plant_lines.append(
+                f'<line x1="{px:.1f}" y1="{pad_t}" x2="{px:.1f}" y2="{height - pad_b}" '
+                'stroke="#16a34a" stroke-width="2" stroke-dasharray="3,3"/>'
+                f'<rect x="{px - 28:.1f}" y="{pad_t - 14}" width="56" height="15" rx="3" '
+                'fill="#dcfce7" stroke="#86efac" stroke-width="1"/>'
+                f'<text x="{px:.1f}" y="{pad_t - 3}" fill="#15803d" '
+                'font-size="9" font-weight="800" text-anchor="middle">🌱 Planted</text>'
+            )
+
         circles = []
         for d, p in price_points:
             if d in {0, 10, 20, 30} or (d, p) == price_points[-1]:
@@ -1173,6 +1187,7 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
             f'<svg viewBox="0 0 {width} {height}" '
             'style="width:100%; height:auto; display:block;" xmlns="http://www.w3.org/2000/svg">'
             f"{''.join(grid_lines)}"
+            f"{''.join(plant_lines)}"
             f'<path d="{path_pts}" fill="none" stroke="#0284c7" '
             'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
             f"{''.join(circles)}"
@@ -1199,19 +1214,21 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
                 else ""
             )
             plant_summary = (
-                "<div style='flex:1; min-width:260px;'>"
-                f"<h4 style='margin:0.5rem 0; font-size:0.95rem; color:#1e293b;'>"
-                f"🌱 Plant Locations ({len(plants)} events)</h4>"
+                "<details class='sub-details' open style='flex:1; min-width:260px; margin:0;'>"
+                f"<summary style='font-size:0.95rem; color:#1e293b;'>"
+                f"🌱 Plant Locations ({len(plants)} events)</summary>"
+                "<div style='margin-top:0.5rem; overflow-x:auto;'>"
                 "<table><thead><tr><th>Time</th><th>Tile Coordinate</th></tr></thead>"
-                f"<tbody>{plant_rows}</tbody></table>{extra}</div>"
+                f"<tbody>{plant_rows}</tbody></table>{extra}</div></details>"
             )
         else:
             plant_summary = (
-                "<div style='flex:1; min-width:260px;'>"
-                "<h4 style='margin:0.5rem 0; font-size:0.95rem; color:#64748b;'>"
-                "🌱 Plant Locations</h4>"
-                "<p style='font-size:0.85rem; color:#94a3b8; font-style:italic;'>"
-                "No field planting (animal or unplanted item)</p></div>"
+                "<details class='sub-details' style='flex:1; min-width:260px; margin:0;'>"
+                "<summary style='font-size:0.95rem; color:#64748b;'>"
+                "🌱 Plant Locations (0 events)</summary>"
+                "<p style='font-size:0.85rem; color:#94a3b8; font-style:italic; "
+                "margin-top:0.5rem;'>"
+                "No field planting (animal or unplanted item)</p></details>"
             )
 
         # Sales Events Summary
@@ -1232,20 +1249,22 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
                 else ""
             )
             sales_summary = (
-                "<div style='flex:1.2; min-width:320px;'>"
-                f"<h4 style='margin:0.5rem 0; font-size:0.95rem; color:#1e293b;'>"
-                f"💰 Sales History ({total_sold} sold · ${total_rev:,.0f} rev)</h4>"
+                "<details class='sub-details' open style='flex:1.2; min-width:320px; margin:0;'>"
+                f"<summary style='font-size:0.95rem; color:#1e293b;'>"
+                f"💰 Sales History ({total_sold} sold · ${total_rev:,.0f} rev)</summary>"
+                "<div style='margin-top:0.5rem; overflow-x:auto;'>"
                 "<table><thead><tr><th>Time</th><th>Qty</th><th>Unit Price</th>"
                 "<th>Revenue</th></tr></thead>"
-                f"<tbody>{sale_rows}</tbody></table>{extra}</div>"
+                f"<tbody>{sale_rows}</tbody></table>{extra}</div></details>"
             )
         else:
             sales_summary = (
-                "<div style='flex:1.2; min-width:320px;'>"
-                "<h4 style='margin:0.5rem 0; font-size:0.95rem; color:#64748b;'>"
-                "💰 Sales History</h4>"
-                f"<p style='font-size:0.85rem; color:#94a3b8; font-style:italic;'>"
-                f"No market sales recorded for {item}</p></div>"
+                "<details class='sub-details' style='flex:1.2; min-width:320px; margin:0;'>"
+                "<summary style='font-size:0.95rem; color:#64748b;'>"
+                "💰 Sales History (0 sales)</summary>"
+                "<p style='font-size:0.85rem; color:#94a3b8; font-style:italic; "
+                "margin-top:0.5rem;'>"
+                f"No market sales recorded for {item}</p></details>"
             )
 
         item_sections.append(
