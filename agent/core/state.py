@@ -54,6 +54,8 @@ class NormalizedState:
     shops: tuple[str, ...]
     demand: dict[str, int]
     time_remaining: int | None
+    opponent_tiles: tuple[Tile, ...] = ()
+    opponent_money: int = 0
 
     @classmethod
     def from_observation(cls, observation: dict[str, Any]) -> NormalizedState:
@@ -103,6 +105,37 @@ class NormalizedState:
         )
         shed = _quantities(private.get("shed", private.get("inventory", farm.get("inventory"))))
         hands = farm.get("hands", [])
+
+        opp_id = 1 - player if 0 <= player <= 1 else 1
+        opp_farm = farms[opp_id] if isinstance(farms, list) and 0 <= opp_id < len(farms) else {}
+        opp_farm = opp_farm if isinstance(opp_farm, dict) else {}
+        opponent_tiles: list[Tile] = []
+        for tile_y, row in enumerate(opp_farm.get("tiles", [])):
+            if not isinstance(row, list):
+                continue
+            for tile_x, raw in enumerate(row):
+                if isinstance(raw, dict):
+                    opponent_tiles.append(
+                        Tile(
+                            x=tile_x,
+                            y=tile_y,
+                            kind=_string(raw.get("kind")),
+                            watered_today=bool(raw.get("watered_today", False)),
+                            yield_units=_integer(raw.get("yield_units")),
+                            weeds=bool(raw.get("weeds", False)),
+                            fertilizer=_integer(raw.get("fertilizer")),
+                            crop=_string(raw.get("crop")),
+                            animal=_string(raw.get("animal")),
+                            fed_today=bool(raw.get("fed_today", False)),
+                            cared_today=bool(raw.get("cared_today", False)),
+                            fertilizer_available=bool(raw.get("fertilizer_available", False)),
+                            planted_day=_optional_integer(raw.get("planted_day")),
+                            consecutive_unwatered=_integer(raw.get("consecutive_unwatered")),
+                            max_lifespan_step=_optional_integer(raw.get("max_lifespan_step")),
+                        )
+                    )
+                elif raw is None:
+                    opponent_tiles.append(Tile(tile_x, tile_y, None))
         return cls(
             money=_integer(farm.get("money")),
             day=_integer(observation.get("day")),
@@ -143,7 +176,16 @@ class NormalizedState:
             else (),
             demand=_quantities(town.get("demand") if isinstance(town, dict) else {}),
             time_remaining=_optional_integer(observation.get("time_remaining")),
+            opponent_tiles=tuple(opponent_tiles),
+            opponent_money=_integer(opp_farm.get("money")),
         )
+
+    def shed_tiles(self) -> tuple[tuple[int, int], ...]:
+        half = self.board_size // 2
+        return ((half - 1, half - 1), (half, half - 1), (half - 1, half), (half, half))
+
+    def min_shed_distance(self, position: tuple[int, int]) -> int:
+        return min(abs(position[0] - sx) + abs(position[1] - sy) for sx, sy in self.shed_tiles())
 
     def tile_at_position(self) -> Tile | None:
         return next((tile for tile in self.tiles if (tile.x, tile.y) == self.position), None)

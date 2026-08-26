@@ -8,6 +8,7 @@ from agent.engines.leader_v2 import LeaderV2Engine
 from agent.engines.leader_v3 import LeaderV3Engine
 from agent.engines.leader_v4 import LeaderV4Engine
 from agent.engines.leader_v5 import LeaderV5Engine
+from agent.engines.leader_v6 import LeaderV6Engine
 from agent.harness.adapters.kaggle import KaggleEnvironmentAdapter
 from agent.harness.models import Scenario
 from agent.harness.registry import (
@@ -39,6 +40,8 @@ def register_builtins() -> None:
         register_agent("leader-v4", LeaderV4Engine())
     if "leader-v5" not in _names("agent"):
         register_agent("leader-v5", LeaderV5Engine())
+    if "leader-v6" not in _names("agent"):
+        register_agent("leader-v6", LeaderV6Engine())
     if "json" not in _names("reporter"):
         register_reporter("json", JsonReporter)
     if "jsonl" not in _names("reporter"):
@@ -49,7 +52,7 @@ def register_builtins() -> None:
             Scenario(
                 name="baseline",
                 adapter="kaggriculture",
-                agent="heuristic",
+                agent="leader-v6",
                 opponent="pass",
                 seeds=(42,),
             ),
