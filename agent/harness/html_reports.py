@@ -1158,7 +1158,7 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
                 f'font-size="10" font-weight="600" text-anchor="end">${y_val:,.0f}</text>'
             )
 
-        # Vertical indicator lines for Planting events
+        # Vertical indicator lines for Planting events (Top axis: 🌱)
         plant_lines = []
         plant_days = sorted(set(int(p.get("day", 0)) for p in plants))
         for p_day in plant_days:
@@ -1166,10 +1166,24 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
             plant_lines.append(
                 f'<line x1="{px:.1f}" y1="{pad_t}" x2="{px:.1f}" y2="{height - pad_b}" '
                 'stroke="#16a34a" stroke-width="2" stroke-dasharray="3,3"/>'
-                f'<rect x="{px - 28:.1f}" y="{pad_t - 14}" width="56" height="15" rx="3" '
+                f'<rect x="{px - 10:.1f}" y="{pad_t - 15}" width="20" height="15" rx="3" '
                 'fill="#dcfce7" stroke="#86efac" stroke-width="1"/>'
-                f'<text x="{px:.1f}" y="{pad_t - 3}" fill="#15803d" '
-                'font-size="9" font-weight="800" text-anchor="middle">🌱 Planted</text>'
+                f'<text x="{px:.1f}" y="{pad_t - 4}" fill="#15803d" '
+                'font-size="10" font-weight="800" text-anchor="middle">🌱</text>'
+            )
+
+        # Vertical indicator lines for Selling events (Bottom axis: 💲)
+        sell_lines = []
+        sell_days = sorted(set(int(s.get("day", 0)) for s in sales))
+        for s_day in sell_days:
+            sx = scale_x(s_day)
+            sell_lines.append(
+                f'<line x1="{sx:.1f}" y1="{pad_t}" x2="{sx:.1f}" y2="{height - pad_b}" '
+                'stroke="#0284c7" stroke-width="2" stroke-dasharray="2,2"/>'
+                f'<rect x="{sx - 10:.1f}" y="{height - pad_b + 2}" width="20" height="15" rx="3" '
+                'fill="#e0f2fe" stroke="#7dd3fc" stroke-width="1"/>'
+                f'<text x="{sx:.1f}" y="{height - pad_b + 13}" fill="#0369a1" '
+                'font-size="10" font-weight="800" text-anchor="middle">💲</text>'
             )
 
         circles = []
@@ -1188,6 +1202,7 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
             'style="width:100%; height:auto; display:block;" xmlns="http://www.w3.org/2000/svg">'
             f"{''.join(grid_lines)}"
             f"{''.join(plant_lines)}"
+            f"{''.join(sell_lines)}"
             f'<path d="{path_pts}" fill="none" stroke="#0284c7" '
             'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
             f"{''.join(circles)}"
@@ -1214,7 +1229,7 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
                 else ""
             )
             plant_summary = (
-                "<details class='sub-details' open style='flex:1; min-width:260px; margin:0;'>"
+                "<details class='sub-details' style='flex:1; min-width:260px; margin:0;'>"
                 f"<summary style='font-size:0.95rem; color:#1e293b;'>"
                 f"🌱 Plant Locations ({len(plants)} events)</summary>"
                 "<div style='margin-top:0.5rem; overflow-x:auto;'>"
@@ -1249,7 +1264,7 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
                 else ""
             )
             sales_summary = (
-                "<details class='sub-details' open style='flex:1.2; min-width:320px; margin:0;'>"
+                "<details class='sub-details' style='flex:1.2; min-width:320px; margin:0;'>"
                 f"<summary style='font-size:0.95rem; color:#1e293b;'>"
                 f"💰 Sales History ({total_sold} sold · ${total_rev:,.0f} rev)</summary>"
                 "<div style='margin-top:0.5rem; overflow-x:auto;'>"
@@ -1283,7 +1298,7 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
 
     all_content = "".join(item_sections)
     return (
-        '<details class="item-lifecycle-details" open>'
+        '<details class="item-lifecycle-details">'
         f"<summary>Item-by-Item Price, Plant & Sale Flow ({len(all_items)} items)</summary>"
         f"<div style='margin-top: 1.25rem;'>{all_content}</div></details>"
     )
