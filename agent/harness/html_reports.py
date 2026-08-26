@@ -1348,8 +1348,8 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
         min_p = min(p[1] for p in price_points) if price_points else 0.0
         max_p = max(max(p[1] for p in price_points), 10.0) * 1.15 if price_points else 50.0
 
-        width, height = 800, 170
-        pad_l, pad_r, pad_t, pad_b = 60, 30, 24, 34
+        width, height = 800, 150
+        pad_l, pad_r, pad_t, pad_b = 60, 30, 22, 30
         plot_w = width - pad_l - pad_r
         plot_h = height - pad_t - pad_b
 
@@ -1382,58 +1382,6 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
                 f'font-size="10" font-weight="600" text-anchor="end">${y_val:,.0f}</text>'
             )
 
-        # Vertical indicator lines for Planting events (Top axis: 🌱 Us vs 🌱 Opp)
-        plant_lines = []
-        plant_days = sorted(set(int(p.get("day", 0)) for p in plants))
-        for p_day in plant_days:
-            px = scale_x(p_day)
-            plant_lines.append(
-                f'<line x1="{px:.1f}" y1="{pad_t}" x2="{px:.1f}" y2="{height - pad_b}" '
-                'stroke="#16a34a" stroke-width="2" stroke-dasharray="3,3"/>'
-                f'<rect x="{px - 10:.1f}" y="{pad_t - 18}" width="20" height="15" rx="3" '
-                'fill="#dcfce7" stroke="#86efac" stroke-width="1"/>'
-                f'<text x="{px:.1f}" y="{pad_t - 7}" fill="#15803d" '
-                'font-size="9" font-weight="800" text-anchor="middle">🌱</text>'
-            )
-
-        opp_plant_days = sorted(set(int(p.get("day", 0)) for p in opp_plants))
-        for p_day in opp_plant_days:
-            px = scale_x(p_day)
-            plant_lines.append(
-                f'<line x1="{px:.1f}" y1="{pad_t}" x2="{px:.1f}" y2="{height - pad_b}" '
-                'stroke="#dc2626" stroke-width="1.5" stroke-dasharray="2,3"/>'
-                f'<rect x="{px - 10:.1f}" y="{pad_t - 18}" width="20" height="15" rx="3" '
-                'fill="#fee2e2" stroke="#fca5a5" stroke-width="1"/>'
-                f'<text x="{px:.1f}" y="{pad_t - 7}" fill="#b91c1c" '
-                'font-size="9" font-weight="800" text-anchor="middle">🌱</text>'
-            )
-
-        # Vertical indicator lines for Selling events (Bottom axis: 💲 Us vs 💲 Opp)
-        sell_lines = []
-        sell_days = sorted(set(int(s.get("day", 0)) for s in sales))
-        for s_day in sell_days:
-            sx = scale_x(s_day)
-            sell_lines.append(
-                f'<line x1="{sx:.1f}" y1="{pad_t}" x2="{sx:.1f}" y2="{height - pad_b}" '
-                'stroke="#0284c7" stroke-width="2" stroke-dasharray="2,2"/>'
-                f'<rect x="{sx - 10:.1f}" y="{height - pad_b + 3}" width="20" height="15" rx="3" '
-                'fill="#e0f2fe" stroke="#7dd3fc" stroke-width="1"/>'
-                f'<text x="{sx:.1f}" y="{height - pad_b + 14}" fill="#0369a1" '
-                'font-size="9" font-weight="800" text-anchor="middle">💲</text>'
-            )
-
-        opp_sell_days = sorted(set(int(s.get("day", 0)) for s in opp_sales))
-        for s_day in opp_sell_days:
-            sx = scale_x(s_day)
-            sell_lines.append(
-                f'<line x1="{sx:.1f}" y1="{pad_t}" x2="{sx:.1f}" y2="{height - pad_b}" '
-                'stroke="#ea580c" stroke-width="1.5" stroke-dasharray="2,3"/>'
-                f'<rect x="{sx - 10:.1f}" y="{height - pad_b + 3}" width="20" height="15" rx="3" '
-                'fill="#ffedd5" stroke="#fdba74" stroke-width="1"/>'
-                f'<text x="{sx:.1f}" y="{height - pad_b + 14}" fill="#c2410c" '
-                'font-size="9" font-weight="800" text-anchor="middle">💲</text>'
-            )
-
         circles = []
         for d, p in price_points:
             if d in {0, 10, 20, 30} or (d, p) == price_points[-1]:
@@ -1445,21 +1393,88 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
                     f'font-size="9" font-weight="700" text-anchor="middle">${p:,.0f}</text>'
                 )
 
-        svg = (
-            f'<svg viewBox="0 0 {width} {height}" '
-            'style="width:100%; height:auto; display:block;" xmlns="http://www.w3.org/2000/svg">'
-            f"{''.join(grid_lines)}"
-            f"{''.join(plant_lines)}"
-            f"{''.join(sell_lines)}"
-            f'<path d="{path_pts}" fill="none" stroke="#0284c7" '
-            'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
-            f"{''.join(circles)}"
+        x_axis_labels = (
             f'<text x="{scale_x(0):.1f}" y="{height - 6}" fill="#64748b" '
             'font-size="10" text-anchor="start">Day 0</text>'
             f'<text x="{scale_x(15):.1f}" y="{height - 6}" fill="#64748b" '
             'font-size="10" text-anchor="middle">Day 15</text>'
             f'<text x="{scale_x(30):.1f}" y="{height - 6}" fill="#64748b" '
             'font-size="10" text-anchor="end">Day 30</text>'
+        )
+
+        # 1. OUR MOVEMENTS CHART (🌱 Plant Us & 💲 Sale Us)
+        our_plant_lines = []
+        for p_day in sorted(set(int(p.get("day", 0)) for p in plants)):
+            px = scale_x(p_day)
+            our_plant_lines.append(
+                f'<line x1="{px:.1f}" y1="{pad_t}" x2="{px:.1f}" y2="{height - pad_b}" '
+                'stroke="#16a34a" stroke-width="2" stroke-dasharray="3,3"/>'
+                f'<rect x="{px - 10:.1f}" y="{pad_t - 17}" width="20" height="15" rx="3" '
+                'fill="#dcfce7" stroke="#86efac" stroke-width="1"/>'
+                f'<text x="{px:.1f}" y="{pad_t - 6}" fill="#15803d" '
+                'font-size="9" font-weight="800" text-anchor="middle">🌱</text>'
+            )
+
+        our_sell_lines = []
+        for s_day in sorted(set(int(s.get("day", 0)) for s in sales)):
+            sx = scale_x(s_day)
+            our_sell_lines.append(
+                f'<line x1="{sx:.1f}" y1="{pad_t}" x2="{sx:.1f}" y2="{height - pad_b}" '
+                'stroke="#0284c7" stroke-width="2" stroke-dasharray="2,2"/>'
+                f'<rect x="{sx - 10:.1f}" y="{height - pad_b + 3}" width="20" height="15" rx="3" '
+                'fill="#e0f2fe" stroke="#7dd3fc" stroke-width="1"/>'
+                f'<text x="{sx:.1f}" y="{height - pad_b + 14}" fill="#0369a1" '
+                'font-size="9" font-weight="800" text-anchor="middle">💲</text>'
+            )
+
+        svg_ours = (
+            f'<svg viewBox="0 0 {width} {height}" '
+            'style="width:100%; height:auto; display:block;" xmlns="http://www.w3.org/2000/svg">'
+            f"{''.join(grid_lines)}"
+            f"{''.join(our_plant_lines)}"
+            f"{''.join(our_sell_lines)}"
+            f'<path d="{path_pts}" fill="none" stroke="#0284c7" '
+            'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
+            f"{''.join(circles)}"
+            f"{x_axis_labels}"
+            "</svg>"
+        )
+
+        # 2. OPPONENT MOVEMENTS CHART (🌱 Plant Opp & 💲 Sale Opp)
+        opp_plant_lines = []
+        for p_day in sorted(set(int(p.get("day", 0)) for p in opp_plants)):
+            px = scale_x(p_day)
+            opp_plant_lines.append(
+                f'<line x1="{px:.1f}" y1="{pad_t}" x2="{px:.1f}" y2="{height - pad_b}" '
+                'stroke="#dc2626" stroke-width="2" stroke-dasharray="2,3"/>'
+                f'<rect x="{px - 10:.1f}" y="{pad_t - 17}" width="20" height="15" rx="3" '
+                'fill="#fee2e2" stroke="#fca5a5" stroke-width="1"/>'
+                f'<text x="{px:.1f}" y="{pad_t - 6}" fill="#b91c1c" '
+                'font-size="9" font-weight="800" text-anchor="middle">🌱</text>'
+            )
+
+        opp_sell_lines = []
+        for s_day in sorted(set(int(s.get("day", 0)) for s in opp_sales)):
+            sx = scale_x(s_day)
+            opp_sell_lines.append(
+                f'<line x1="{sx:.1f}" y1="{pad_t}" x2="{sx:.1f}" y2="{height - pad_b}" '
+                'stroke="#ea580c" stroke-width="2" stroke-dasharray="2,3"/>'
+                f'<rect x="{sx - 10:.1f}" y="{height - pad_b + 3}" width="20" height="15" rx="3" '
+                'fill="#ffedd5" stroke="#fdba74" stroke-width="1"/>'
+                f'<text x="{sx:.1f}" y="{height - pad_b + 14}" fill="#c2410c" '
+                'font-size="9" font-weight="800" text-anchor="middle">💲</text>'
+            )
+
+        svg_opp = (
+            f'<svg viewBox="0 0 {width} {height}" '
+            'style="width:100%; height:auto; display:block;" xmlns="http://www.w3.org/2000/svg">'
+            f"{''.join(grid_lines)}"
+            f"{''.join(opp_plant_lines)}"
+            f"{''.join(opp_sell_lines)}"
+            f'<path d="{path_pts}" fill="none" stroke="#94a3b8" stroke-dasharray="4,4" '
+            'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+            f"{''.join(circles)}"
+            f"{x_axis_labels}"
             "</svg>"
         )
 
@@ -1540,24 +1555,35 @@ def _item_lifecycle_charts_html(episode: ReportEpisode) -> str:
                 f"margin-top:0.5rem;'>No market sales recorded for {item}</p></details>"
             )
 
-        legend_badges = (
-            '<span style="font-size:0.85rem; color:#64748b; font-weight:normal; '
-            'display:flex; gap:0.75rem;">'
-            '<span style="color:#16a34a; font-weight:600;">🌱 Plant (Us)</span> '
-            '<span style="color:#dc2626; font-weight:600;">🌱 Plant (Opp)</span> '
-            '<span style="color:#0284c7; font-weight:600;">💲 Sale (Us)</span> '
-            '<span style="color:#ea580c; font-weight:600;">💲 Sale (Opp)</span>'
-            "</span>"
-        )
         item_sections.append(
             '<div style="background:var(--card-bg); border:1px solid var(--border); '
             'border-radius:8px; padding:1.25rem; margin-bottom:1.5rem;">'
             '<h3 style="margin-top:0; color:#0f172a; display:flex; '
             'justify-content:space-between; align-items:center;">'
             f"<span>📦 {item}</span>"
-            f"{legend_badges}</h3>"
-            '<div style="margin-bottom:1rem;"><strong style="font-size:0.85rem; color:#475569;">'
-            f"Price Curve & Activity Lifecycle (Day 0–30):</strong>{svg}</div>"
+            '<span style="font-size:0.85rem; color:#64748b; font-weight:normal;">'
+            f"Total Market Plants: {len(plants) + len(opp_plants)} · "
+            f"Total Sales: {total_sold + opp_total_sold} units</span></h3>"
+            '<div style="margin-bottom:1.25rem; background:#f8fafc; border:1px solid #e2e8f0; '
+            'border-radius:6px; padding:0.75rem;">'
+            '<div style="display:flex; justify-content:space-between; align-items:center; '
+            'margin-bottom:0.4rem;">'
+            '<strong style="font-size:0.85rem; color:#15803d;">'
+            "🟢 Our Farm Activity (🌱 Plants & 💲 Sales — Us)</strong>"
+            '<span style="font-size:0.8rem; color:#64748b;">'
+            '<span style="color:#16a34a; font-weight:600;">🌱 Plant</span> · '
+            '<span style="color:#0284c7; font-weight:600;">💲 Sale</span></span></div>'
+            f"{svg_ours}</div>"
+            '<div style="margin-bottom:1.25rem; background:#fff7ed; border:1px solid #fed7aa; '
+            'border-radius:6px; padding:0.75rem;">'
+            '<div style="display:flex; justify-content:space-between; align-items:center; '
+            'margin-bottom:0.4rem;">'
+            '<strong style="font-size:0.85rem; color:#c2410c;">'
+            "🔴 Opponent Farm Activity (🌱 Plants & 💲 Sales — Opponent)</strong>"
+            '<span style="font-size:0.8rem; color:#64748b;">'
+            '<span style="color:#dc2626; font-weight:600;">🌱 Opp Plant</span> · '
+            '<span style="color:#ea580c; font-weight:600;">💲 Opp Sale</span></span></div>'
+            f"{svg_opp}</div>"
             '<div style="display:flex; flex-wrap:wrap; gap:1.5rem; margin-top:1rem;">'
             f"{plant_summary}{sales_summary}</div>"
             "</div>"
