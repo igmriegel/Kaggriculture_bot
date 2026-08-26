@@ -468,6 +468,11 @@ def _replay_economic_metrics(
         for item in all_items
     }
 
+    strategic_events: list[dict[str, Any]] = []
+    known_shops: list[str] = []
+    known_quads: list[int] = []
+    active_event_recorders: list[dict[str, Any]] = []
+
     for step in steps:
         if not isinstance(step, list) or len(step) <= agent_index:
             continue
@@ -477,6 +482,7 @@ def _replay_economic_metrics(
             continue
         day = int(obs.get("day", 0))
         hour = int(obs.get("hour", 0))
+        time_str = f"Day {day:02d} (H{hour:02d})"
         prices = (
             obs.get("market", {}).get("prices", {}) if isinstance(obs.get("market"), dict) else {}
         )
@@ -504,7 +510,54 @@ def _replay_economic_metrics(
             hands_pos = our_farm.get("hands", [])
             worker_positions = [farmer_pos] + (hands_pos if isinstance(hands_pos, list) else [])
 
+            # Check Town Shop Unlocks
+            town = obs.get("town", {}) if isinstance(obs.get("town"), dict) else {}
+            unlocked_shops = (
+                town.get("unlocked_shops", [])
+                if isinstance(town.get("unlocked_shops"), list)
+                else []
+            )
+            if len(unlocked_shops) > len(known_shops):
+                new_shops = unlocked_shops[len(known_shops) :]
+                if known_shops:  # Skip recording initial state at turn 0
+                    ev = {
+                        "type": "SHOP_UNLOCKED",
+                        "icon": "🏪",
+                        "day": day,
+                        "hour": hour,
+                        "title": f"Town Shop Unlocked: {', '.join(new_shops)}",
+                        "remaining_turns": 4,
+                        "subsequent_actions": [],
+                    }
+                    strategic_events.append(ev)
+                    active_event_recorders.append(ev)
+                known_shops = list(unlocked_shops)
+
+            # Check Land Expansion Unlocks
+            our_quads = (
+                our_farm.get("unlocked_quadrants", [0])
+                if isinstance(our_farm.get("unlocked_quadrants"), list)
+                else [0]
+            )
+            if len(our_quads) > len(known_quads):
+                if known_quads:  # Recorded upon buying land
+                    new_quads = [q for q in our_quads if q not in known_quads]
+                    quad_str = ", ".join(str(q) for q in new_quads)
+                    ev = {
+                        "type": "LAND_EXPANSION",
+                        "icon": "🗺️",
+                        "day": day,
+                        "hour": hour,
+                        "title": f"Land Expansion: Quadrant {quad_str} Unlocked",
+                        "remaining_turns": 4,
+                        "subsequent_actions": [],
+                    }
+                    strategic_events.append(ev)
+                    active_event_recorders.append(ev)
+                known_quads = list(our_quads)
+
             # Parse action and market orders for our agent
+            current_turn_actions: list[str] = []
             action = rec_our.get("action")
             if isinstance(action, dict):
                 commands = [
@@ -519,10 +572,23 @@ def _replay_economic_metrics(
                         pos = list(raw_pos) if isinstance(raw_pos, list | tuple) else [0, 0]
                         if op == "PLANT" and len(command) > 1 and isinstance(command[1], str):
                             crop_name = command[1].upper()
+                            current_turn_actions.append(
+                                f"Planted {crop_name} at ({pos[0]},{pos[1]})"
+                            )
                             if crop_name in item_lifecycle:
                                 item_lifecycle[crop_name]["plants"].append(
                                     {"day": day, "hour": hour, "pos": pos}
                                 )
+                        elif op == "HARVEST":
+                            current_turn_actions.append(f"Harvested crop at ({pos[0]},{pos[1]})")
+                        elif op == "FEED":
+                            current_turn_actions.append(f"Fed livestock at ({pos[0]},{pos[1]})")
+                        elif op == "BUILD" and len(command) > 1:
+                            current_turn_actions.append(
+                                f"Built {command[1]} at ({pos[0]},{pos[1]})"
+                            )
+                        elif op == "FERTILIZE":
+                            current_turn_actions.append(f"Fertilized tile at ({pos[0]},{pos[1]})")
 
                 for order in action.get("market", []):
                     if order and isinstance(order[0], str):
@@ -531,10 +597,9 @@ def _replay_economic_metrics(
                         daily_records[day]["market_orders"][op] += qty
                         if op == "SELL" and len(order) > 1 and isinstance(order[1], str):
                             item_name = order[1].upper()
+                            unit_price = prices.get(item_name, 0) if isinstance(prices, dict) else 0
+                            current_turn_actions.append(f"Sold {qty} {item_name} at ${unit_price}")
                             if item_name in item_lifecycle:
-                                unit_price = (
-                                    prices.get(item_name, 0) if isinstance(prices, dict) else 0
-                                )
                                 item_lifecycle[item_name]["sales"].append(
                                     {
                                         "day": day,
@@ -543,6 +608,21 @@ def _replay_economic_metrics(
                                         "price": unit_price,
                                     }
                                 )
+                        elif op == "BUY" and len(order) > 1 and isinstance(order[1], str):
+                            current_turn_actions.append(f"Bought {qty} {order[1]}")
+                        elif op == "HIRE":
+                            current_turn_actions.append(f"Hired {qty} Hand(s)")
+                        elif op == "BUY_LAND":
+                            current_turn_actions.append("Executed BUY_LAND expansion")
+
+            # Record reactions for active strategic events
+            if active_event_recorders and current_turn_actions:
+                action_text = f"{time_str}: {', '.join(current_turn_actions[:3])}"
+                for ev in list(active_event_recorders):
+                    ev["subsequent_actions"].append(action_text)
+                    ev["remaining_turns"] -= 1
+                    if ev["remaining_turns"] <= 0:
+                        active_event_recorders.remove(ev)
 
         if (
             opponent_index is not None
@@ -604,6 +684,7 @@ def _replay_economic_metrics(
         "daily_our_money": [daily_our.get(d, 0.0) for d in range(31) if d in daily_our],
         "daily_opp_money": [daily_opp.get(d, 0.0) for d in range(31) if d in daily_opp],
         "items": item_lifecycle,
+        "strategic_events": strategic_events,
     }
 
 
@@ -853,6 +934,7 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
         f"<small>Fallbacks: {_metric(episode.metrics, 'fallbacks_inferred')}</small></div>"
         "</section>"
         f"{_score_evolution_chart_html(episode)}"
+        f"{_strategic_milestones_timeline_html(episode)}"
         f"{_item_lifecycle_charts_html(episode)}"
         f"{_harvest_waiting_times_summary_html()}"
         f"{daily_table}"
@@ -968,11 +1050,31 @@ def _score_evolution_chart_html(episode: ReportEpisode) -> str:
                 f'font-size="11" font-weight="800" text-anchor="middle">${p[1]:,.0f}</text>'
             )
 
+    # Strategic Milestones (Town Shop Unlocks & Land Expansion)
+    strategic_events = economic.get("strategic_events", []) if isinstance(economic, dict) else []
+    event_lines = []
+    for ev in strategic_events:
+        eday = float(ev.get("day", 0)) + float(ev.get("hour", 0)) / 24.0
+        ex = scale_x(eday)
+        icon = ev.get("icon", "⭐")
+        etype = ev.get("type", "")
+        stroke_color = "#8b5cf6" if etype == "SHOP_UNLOCKED" else "#f59e0b"
+        bg_color = "#ede9fe" if etype == "SHOP_UNLOCKED" else "#fef3c7"
+        event_lines.append(
+            f'<line x1="{ex:.1f}" y1="{pad_top}" x2="{ex:.1f}" y2="{height - pad_bottom}" '
+            f'stroke="{stroke_color}" stroke-width="2" stroke-dasharray="3,3"/>'
+            f'<rect x="{ex - 11:.1f}" y="{pad_top - 20}" width="22" height="16" rx="4" '
+            f'fill="{bg_color}" stroke="{stroke_color}" stroke-width="1.5"/>'
+            f'<text x="{ex:.1f}" y="{pad_top - 7}" font-size="10" '
+            f'text-anchor="middle">{icon}</text>'
+        )
+
     svg_content = (
         f'<svg viewBox="0 0 {width} {height}" style="width:100%; height:auto; display:block;" '
         'xmlns="http://www.w3.org/2000/svg">'
         f"{''.join(grid_lines)}"
         f"{''.join(x_labels)}"
+        f"{''.join(event_lines)}"
         f'<path d="{opp_d}" fill="none" stroke="#dc2626" stroke-width="3" '
         'stroke-dasharray="6,4" stroke-linecap="round"/>'
         f'<path d="{our_d}" fill="none" stroke="#16a34a" stroke-width="3.5" '
@@ -992,8 +1094,79 @@ def _score_evolution_chart_html(episode: ReportEpisode) -> str:
         f"<span>Our Submission ({our_name_esc})</span></div>"
         '<div class="legend-item"><div class="legend-color legend-opp"></div>'
         f"<span>Opponent ({opp_name_esc})</span></div>"
+        '<div class="legend-item"><span style="font-size:0.95rem;">🏪</span>'
+        "<span>Town Shop Open</span></div>"
+        '<div class="legend-item"><span style="font-size:0.95rem;">🗺️</span>'
+        "<span>Land Expansion</span></div>"
         "</div></div>"
         f"{svg_content}</section>"
+    )
+
+
+def _strategic_milestones_timeline_html(episode: ReportEpisode) -> str:
+    """Generate a timeline section showing strategic events and subsequent bot reactions."""
+    economic = _metric(episode.metrics, "economic", {})
+    events = economic.get("strategic_events", []) if isinstance(economic, dict) else []
+    if not events:
+        return ""
+
+    cards = []
+    for ev in events:
+        icon = ev.get("icon", "⭐")
+        title = ev.get("title", "Strategic Milestone")
+        day = int(ev.get("day", 0))
+        hour = int(ev.get("hour", 0))
+        etype = ev.get("type", "")
+        border_color = "#8b5cf6" if etype == "SHOP_UNLOCKED" else "#f59e0b"
+        bg_pill = "#f5f3ff" if etype == "SHOP_UNLOCKED" else "#fffbeb"
+        text_pill = "#6d28d9" if etype == "SHOP_UNLOCKED" else "#b45309"
+
+        actions = ev.get("subsequent_actions", [])
+        if actions:
+            action_items = "".join(
+                f"<li style='margin-bottom:0.3rem; color:#334155;'>{escape(act)}</li>"
+                for act in actions
+            )
+            reaction_block = (
+                "<div style='margin-top:0.75rem; background:#f8fafc; border:1px solid #e2e8f0; "
+                "border-radius:6px; padding:0.75rem;'>"
+                "<strong style='font-size:0.85rem; color:#475569; display:block; "
+                "margin-bottom:0.4rem;'>"
+                "⚡ Subsequent Farm Actions (Immediate Reaction):</strong>"
+                f"<ul style='margin:0; padding-left:1.25rem; font-size:0.85rem;'>"
+                f"{action_items}</ul></div>"
+            )
+        else:
+            reaction_block = (
+                "<p style='font-size:0.85rem; color:#94a3b8; font-style:italic; "
+                "margin-top:0.5rem;'>Ongoing steady operations in field & livestock.</p>"
+            )
+
+        title_span = (
+            f'<span style="font-weight:700; font-size:1rem; color:#0f172a;">'
+            f"{icon} {escape(title)}</span>"
+        )
+        pill_span = (
+            f'<span style="background:{bg_pill}; color:{text_pill}; font-weight:700; '
+            f'font-size:0.8rem; padding:0.2rem 0.6rem; border-radius:999px;">'
+            f"Day {day:02d} (H{hour:02d})</span>"
+        )
+        cards.append(
+            f'<div style="border-left:4px solid {border_color}; background:var(--card-bg); '
+            "border-radius:0 8px 8px 0; padding:1rem 1.25rem; margin-bottom:1rem; "
+            'box-shadow:0 1px 3px rgba(0,0,0,0.05);">'
+            '<div style="display:flex; justify-content:space-between; align-items:center;">'
+            f"{title_span}{pill_span}</div>"
+            f"{reaction_block}</div>"
+        )
+
+    return (
+        '<section class="chart-container" aria-label="Strategic Milestones & Reaction Timeline">'
+        '<details class="strategic-timeline-details" open>'
+        '<summary style="font-size:1.1rem; font-weight:700; color:#0f172a; cursor:pointer;">'
+        f"🏛️ Strategic Milestones & Reaction Timeline ({len(events)} milestones)</summary>"
+        f"<div style='margin-top:1.25rem;'>{''.join(cards)}</div>"
+        "</details></section>"
     )
 
 
