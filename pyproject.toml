@@ -13,6 +13,7 @@ dev = [
     "ty>=0.0.1a0",
 ]
 competition = [
+    "cmaes>=0.13.1",
     "kaggle-environments>=1.18,<2",
     "optuna>=4.9.0",
 ]

@@ -2,11 +2,13 @@ import json
 import os
 import sys
 from concurrent.futures import ProcessPoolExecutor
+from contextlib import contextmanager
 
 import optuna
 
 
 # Suppress stderr/stdout warnings during imports to keep terminal clean
+@contextmanager
 def _suppress_output():
     sys.stdout.flush()
     sys.stderr.flush()
@@ -26,23 +28,15 @@ def _suppress_output():
 
 
 # Run imports inside suppressed context to avoid flooding the stdout
-with open(os.devnull, "w") as devnull:
-    old_stdout = sys.stdout
-    old_stderr = sys.stderr
-    sys.stdout = devnull
-    sys.stderr = devnull
-    try:
-        from agent.engines.leader_v9 import LeaderV9Engine
-        from agent.engines.leader_v10 import LeaderV10Engine, V10Config
-        from agent.harness.adapters.kaggle import KaggleEnvironmentAdapter
-        from agent.harness.builtins import register_builtins
-        from agent.harness.execution import EpisodeRunner
-        from agent.harness.models import RunConfig
+with _suppress_output():
+    from agent.engines.leader_v9 import LeaderV9Engine
+    from agent.engines.leader_v10 import LeaderV10Engine, V10Config
+    from agent.harness.adapters.kaggle import KaggleEnvironmentAdapter
+    from agent.harness.builtins import register_builtins
+    from agent.harness.execution import EpisodeRunner
+    from agent.harness.models import RunConfig
 
-        register_builtins()
-    finally:
-        sys.stdout = old_stdout
-        sys.stderr = old_stderr
+    register_builtins()
 
 
 def run_single_game(seed: int, config_dict: dict) -> float:
@@ -56,13 +50,14 @@ def run_single_game(seed: int, config_dict: dict) -> float:
         runner = EpisodeRunner(RunConfig(seed=seed, max_turns=720))
 
         # Run without printing output
-        rec = runner.run(
-            adapter,
-            agent_eng.act,
-            episode_id=f"opt-seed-{seed}",
-            agent_name="v10",
-            opponent_name="v9",
-        )
+        with _suppress_output():
+            rec = runner.run(
+                adapter,
+                agent_eng.act,
+                episode_id=f"opt-seed-{seed}",
+                agent_name="v10",
+                opponent_name="v9",
+            )
 
         rewards = (
             rec.raw_result["rewards"]
