@@ -152,26 +152,25 @@ def main():
 
     os.makedirs("reports/benchmarks", exist_ok=True)
 
-    v6_report = run_evaluation("leader-v10", "leader-v6", LeaderV10Engine, LeaderV6Engine, num_matches=args.num_matches)
-    v7_report = run_evaluation("leader-v10", "leader-v7", LeaderV10Engine, LeaderV7Engine, num_matches=args.num_matches)
-    v8_report = run_evaluation("leader-v10", "leader-v8", LeaderV10Engine, LeaderV8Engine, num_matches=args.num_matches)
-    v9_report = run_evaluation("leader-v10", "leader-v9", LeaderV10Engine, LeaderV9Engine, num_matches=args.num_matches)
+    v6_report = run_evaluation("leader-v9", "leader-v6", LeaderV9Engine, LeaderV6Engine, num_matches=args.num_matches)
+    v7_report = run_evaluation("leader-v9", "leader-v7", LeaderV9Engine, LeaderV7Engine, num_matches=args.num_matches)
+    v8_report = run_evaluation("leader-v9", "leader-v8", LeaderV9Engine, LeaderV8Engine, num_matches=args.num_matches)
 
-    all_reports = {"v6": v6_report, "v7": v7_report, "v8": v8_report, "v9": v9_report}
+    all_reports = {"v6": v6_report, "v7": v7_report, "v8": v8_report}
 
     with open("reports/benchmarks/latest.json", "w") as f:
         json.dump(all_reports, f, indent=2)
 
     with open("reports/benchmarks/latest.md", "w") as f:
-        f.write("# Consolidated Benchmarks Report (V10)\n\n")
+        f.write("# Consolidated Benchmarks Report (V9)\n\n")
 
         f.write("## Summary\n\n")
-        f.write("| Matchup | Win Rate | Avg V10 | Avg Opp | Min V10 | Max V10 | Min Opp | Max Opp | Margin |\n")
+        f.write("| Matchup | Win Rate | Avg V9 | Avg Opp | Min V9 | Max V9 | Min Opp | Max Opp | Margin |\n")
         f.write("|:---|:---:|---:|---:|---:|---:|---:|---:|---:|\n")
-        for key in ["v6", "v7", "v8", "v9"]:
+        for key in ["v6", "v7", "v8"]:
             r = all_reports[key]
             f.write(
-                f"| V10 vs {r['opponent'].upper()} | {r['win_rate']}% "
+                f"| V9 vs {r['opponent'].upper()} | {r['win_rate']}% "
                 f"| ${r['average_agent_score']:,.2f} | ${r['average_opponent_score']:,.2f} "
                 f"| ${r['min_agent_score']:,.0f} | ${r['max_agent_score']:,.0f} "
                 f"| ${r['min_opp_score']:,.0f} | ${r['max_opp_score']:,.0f} "
@@ -179,7 +178,7 @@ def main():
             )
         f.write("\n")
 
-        for key in ["v6", "v7", "v8", "v9"]:
+        for key in ["v6", "v7", "v8"]:
             rep = all_reports[key]
             f.write(f"## {rep['agent'].upper()} vs {rep['opponent'].upper()}\n")
             f.write(f"* **Win Rate:** {rep['win_rate']}%\n")
@@ -194,7 +193,7 @@ def main():
             for m in rep["matches"]:
                 badge = (
                     f"**{m['result']}**"
-                    if "WIN" in m["result"] and "V10" in m["result"]
+                    if "WIN" in m["result"] and "V9" in m["result"]
                     else m["result"]
                 )
                 f.write(
@@ -208,13 +207,13 @@ def main():
     print("Results written to reports/benchmarks/latest.json and reports/benchmarks/latest.md")
 
     print("\n=== SUMMARY TABLE ===")
-    header = f"{'Matchup':<18} {'Win Rate':>8} {'Avg V10':>10} {'Avg Opp':>10} {'Min V10':>10} {'Max V10':>10} {'Min Opp':>10} {'Max Opp':>10} {'Margin':>10}"
+    header = f"{'Matchup':<18} {'Win Rate':>8} {'Avg V9':>10} {'Avg Opp':>10} {'Min V9':>10} {'Max V9':>10} {'Min Opp':>10} {'Max Opp':>10} {'Margin':>10}"
     print(header)
     print("-" * len(header))
-    for key in ["v6", "v7", "v8", "v9"]:
+    for key in ["v6", "v7", "v8"]:
         r = all_reports[key]
         print(
-            f"V10 vs {r['opponent'].upper():<12} {r['win_rate']:>7.1f}% "
+            f"V9 vs {r['opponent'].upper():<12} {r['win_rate']:>7.1f}% "
             f"${r['average_agent_score']:>9,.0f} ${r['average_opponent_score']:>9,.0f} "
             f"${r['min_agent_score']:>9,.0f} ${r['max_agent_score']:>9,.0f} "
             f"${r['min_opp_score']:>9,.0f} ${r['max_opp_score']:>9,.0f} "

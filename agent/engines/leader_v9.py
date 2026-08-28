@@ -15,6 +15,7 @@ from agent.domain.economics import SHOPS
 from agent.engines.leader_v2 import ProductionGoal, Task
 from agent.engines.leader_v6 import (
     _CROP_MATURITY,
+    _PRODUCTS,
 )
 from agent.engines.leader_v8 import LeaderV8Config, LeaderV8Engine
 
@@ -87,7 +88,19 @@ class LeaderV9Engine(LeaderV8Engine):
                 if maturity > remaining_days:
                     continue
 
+                # Only enforce WHEAT/CARROT limits if alternative high-value shops are unlocked
+                has_high_value_shop = any(
+                    any(c in SHOPS.get(shop, ()) for c in ("MELON", "STRAWBERRY", "TOMATO"))
+                    for shop in state.shops
+                )
+
                 current_planned = existing_crops.get(crop, 0) + allocated.get(crop, 0)
+                if has_high_value_shop:
+                    if crop == "WHEAT" and current_planned >= 20:
+                        continue
+                    if crop == "CARROT" and current_planned >= 15:
+                        continue
+
                 marginal_roi = self._calculate_marginal_tile_roi(
                     crop, state, remaining_days, current_planned
                 )
@@ -115,9 +128,16 @@ class LeaderV9Engine(LeaderV8Engine):
         elif crop == "CARROT":
             labor_friction_penalty = 6.0
             return max(0.0, base_roi - labor_friction_penalty)
+        elif crop == "STRAWBERRY" and state.day < 12:
+            # Boost strawberry early game ROI to accelerate capital accumulation
+            return base_roi * 1.5
+        elif crop == "MELON" and state.day < 15:
+            # Boost melon early/mid game ROI
+            return base_roi * 1.3
         return base_roi
 
     def _tasks(self, state: NormalizedState, goals: tuple[ProductionGoal, ...]) -> list[Task]:
+        from dataclasses import replace
         tasks = super()._tasks(state, goals)
 
         filtered_tasks: list[Task] = []
@@ -200,3 +220,40 @@ class LeaderV9Engine(LeaderV8Engine):
 
         final_orders = cattle_orders + filtered_base_orders
         return final_orders[: self.v9_config.max_orders]
+
+    def _sales(
+        self, state: NormalizedState, projected: dict[str, int] | None = None
+    ) -> list[list[Any]]:
+        orders: list[list[Any]] = []
+        is_closing = self._closing(state)
+
+        # Calculate feed buffer
+        total_animals = (
+            self._animal_count(state)
+            + self._pending_animals(state)
+            + sum(1 for inv in state.unit_inventories for k in _V9_ANIMAL_COST if inv.get(k, 0))
+        )
+        needed_wheat = total_animals * 2
+
+        for item, amount in sorted(state.shed.items()):
+            if amount <= 0 or item not in _PRODUCTS:
+                continue
+
+            if item == "WHEAT" and not is_closing:
+                sellable = max(0, amount - needed_wheat)
+            elif item == "FERTILIZER" and not is_closing:
+                regrowable_count = sum(
+                    1 for t in state.tiles if t.kind == "PLANT" and t.crop in ("STRAWBERRY", "TOMATO")
+                )
+                if regrowable_count == 0 or state.money < 150:
+                    sellable = amount
+                else:
+                    fert_to_keep = min(3, regrowable_count, amount)
+                    sellable = max(0, amount - fert_to_keep)
+            else:
+                sellable = amount
+
+            if sellable > 0:
+                orders.append(["SELL", item, sellable])
+
+        return orders
