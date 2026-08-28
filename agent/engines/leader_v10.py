@@ -29,30 +29,30 @@ class V10Config(LeaderV8Config):
 
     # Closing parameters
     closing_day: int = 26
-    closing_maintenance_threshold: int = 12
-    closing_workers_max: int = 4
-    closing_workers_min: int = 2
+    closing_maintenance_threshold: int = 10
+    closing_workers_max: int = 5
+    closing_workers_min: int = 3
     closing_workers_mid: int = 3
     closing_mid_threshold: int = 5
     # Base allocations
     max_allocatable_slots_base: int = 6
     max_allocatable_slots_multiplier: float = 2.0
     # Animal parameters
-    min_cash_buffer_livestock: int = 500
-    double_animal_buy_threshold: int = 1800
+    min_cash_buffer_livestock: int = 638
+    double_animal_buy_threshold: int = 1878
     # ROI multipliers
     melon_roi_cutoff_day: int = 15
-    melon_roi_multiplier: float = 1.3
+    melon_roi_multiplier: float = 1.7519446856565386
     strawberry_roi_cutoff_day: int = 12
-    strawberry_roi_multiplier: float = 1.5
+    strawberry_roi_multiplier: float = 1.5178768214982015
     # Market deal parameters
     melon_deal_price: int = 85
     strawberry_deal_price: int = 115
     # Sprint 2: Market Speculation
-    speculation_hold_threshold: float = 0.85
-    speculation_min_liquidity: int = 1500
+    speculation_hold_threshold: float = 0.7395195641995185
+    speculation_min_liquidity: int = 1640
     # Sprint 3: Anti-Monopoly
-    opponent_crop_penalty: float = 0.05
+    opponent_crop_penalty: float = 0.027970972369217757
 
 
 class LeaderV10Engine(LeaderV8Engine):
