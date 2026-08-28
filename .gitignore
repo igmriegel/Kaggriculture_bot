@@ -7,3 +7,9 @@ dist/
 reports/*
 !reports/.gitkeep
 .agents/
+
+# Kaggle build artifacts
+kaggle_dataset/agent/
+kaggle_dataset/scripts/
+kaggle_dataset/*.whl
+kaggle_dataset/dist/
