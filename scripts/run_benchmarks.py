@@ -1,11 +1,14 @@
+import argparse
 import json
 import os
 import sys
 import time
 
-# Silence stderr during Kaggle/OpenSpiel imports to clean up terminal output
+# Silence stdout/stderr during Kaggle/OpenSpiel imports and registration
 devnull = open(os.devnull, "w")
+old_stdout = sys.stdout
 old_stderr = sys.stderr
+sys.stdout = devnull
 sys.stderr = devnull
 
 try:
@@ -18,11 +21,12 @@ try:
     from agent.harness.builtins import register_builtins
     from agent.harness.execution import EpisodeRunner
     from agent.harness.models import RunConfig
+
+    register_builtins()
 finally:
+    sys.stdout = old_stdout
     sys.stderr = old_stderr
     devnull.close()
-
-register_builtins()
 
 
 def run_evaluation(agent_name, opp_name, agent_class, opp_class, num_matches=30):
@@ -47,13 +51,22 @@ def run_evaluation(agent_name, opp_name, agent_class, opp_class, num_matches=30)
         adapter = KaggleEnvironmentAdapter(opponent=opp_eng.act)
         runner = EpisodeRunner(RunConfig(seed=seed, max_turns=720))
 
-        rec = runner.run(
-            adapter,
-            agent_eng.act,
-            episode_id=f"seed-{seed}",
-            agent_name=agent_name,
-            opponent_name=opp_name,
-        )
+        _devnull = open(os.devnull, "w")
+        _old_stdout, _old_stderr = sys.stdout, sys.stderr
+        sys.stdout = _devnull
+        sys.stderr = _devnull
+        try:
+            rec = runner.run(
+                adapter,
+                agent_eng.act,
+                episode_id=f"seed-{seed}",
+                agent_name=agent_name,
+                opponent_name=opp_name,
+            )
+        finally:
+            sys.stdout = _old_stdout
+            sys.stderr = _old_stderr
+            _devnull.close()
 
         rewards = (
             rec.raw_result["rewards"]
@@ -111,6 +124,10 @@ def run_evaluation(agent_name, opp_name, agent_class, opp_class, num_matches=30)
         "average_agent_score": round(avg_agent, 2),
         "average_opponent_score": round(avg_opp, 2),
         "average_margin": round(avg_agent - avg_opp, 2),
+        "min_agent_score": min(agent_scores),
+        "max_agent_score": max(agent_scores),
+        "min_opp_score": min(opp_scores),
+        "max_opp_score": max(opp_scores),
         "matches": results,
     }
 
@@ -118,12 +135,16 @@ def run_evaluation(agent_name, opp_name, agent_class, opp_class, num_matches=30)
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Run benchmark evaluations")
+    parser.add_argument("-n", "--num-matches", type=int, default=30, help="Number of matches per matchup (default: 30)")
+    args = parser.parse_args()
+
     os.makedirs("reports/benchmarks", exist_ok=True)
 
-    v6_report = run_evaluation("leader-v10", "leader-v6", LeaderV10Engine, LeaderV6Engine)
-    v7_report = run_evaluation("leader-v10", "leader-v7", LeaderV10Engine, LeaderV7Engine)
-    v8_report = run_evaluation("leader-v10", "leader-v8", LeaderV10Engine, LeaderV8Engine)
-    v9_report = run_evaluation("leader-v10", "leader-v9", LeaderV10Engine, LeaderV9Engine)
+    v6_report = run_evaluation("leader-v10", "leader-v6", LeaderV10Engine, LeaderV6Engine, num_matches=args.num_matches)
+    v7_report = run_evaluation("leader-v10", "leader-v7", LeaderV10Engine, LeaderV7Engine, num_matches=args.num_matches)
+    v8_report = run_evaluation("leader-v10", "leader-v8", LeaderV10Engine, LeaderV8Engine, num_matches=args.num_matches)
+    v9_report = run_evaluation("leader-v10", "leader-v9", LeaderV10Engine, LeaderV9Engine, num_matches=args.num_matches)
 
     all_reports = {"v6": v6_report, "v7": v7_report, "v8": v8_report, "v9": v9_report}
 
@@ -132,6 +153,21 @@ def main():
 
     with open("reports/benchmarks/latest.md", "w") as f:
         f.write("# Consolidated Benchmarks Report (V10)\n\n")
+
+        f.write("## Summary\n\n")
+        f.write("| Matchup | Win Rate | Avg V10 | Avg Opp | Min V10 | Max V10 | Min Opp | Max Opp | Margin |\n")
+        f.write("|:---|:---:|---:|---:|---:|---:|---:|---:|---:|\n")
+        for key in ["v6", "v7", "v8", "v9"]:
+            r = all_reports[key]
+            f.write(
+                f"| V10 vs {r['opponent'].upper()} | {r['win_rate']}% "
+                f"| ${r['average_agent_score']:,.2f} | ${r['average_opponent_score']:,.2f} "
+                f"| ${r['min_agent_score']:,.0f} | ${r['max_agent_score']:,.0f} "
+                f"| ${r['min_opp_score']:,.0f} | ${r['max_opp_score']:,.0f} "
+                f"| {r['average_margin']:+,.2f} |\n"
+            )
+        f.write("\n")
+
         for key in ["v6", "v7", "v8", "v9"]:
             rep = all_reports[key]
             f.write(f"## {rep['agent'].upper()} vs {rep['opponent'].upper()}\n")
@@ -159,6 +195,20 @@ def main():
 
     print("\n=== BENCHMARKS DONE ===")
     print("Results written to reports/benchmarks/latest.json and reports/benchmarks/latest.md")
+
+    print("\n=== SUMMARY TABLE ===")
+    header = f"{'Matchup':<18} {'Win Rate':>8} {'Avg V10':>10} {'Avg Opp':>10} {'Min V10':>10} {'Max V10':>10} {'Min Opp':>10} {'Max Opp':>10} {'Margin':>10}"
+    print(header)
+    print("-" * len(header))
+    for key in ["v6", "v7", "v8", "v9"]:
+        r = all_reports[key]
+        print(
+            f"V10 vs {r['opponent'].upper():<12} {r['win_rate']:>7.1f}% "
+            f"${r['average_agent_score']:>9,.0f} ${r['average_opponent_score']:>9,.0f} "
+            f"${r['min_agent_score']:>9,.0f} ${r['max_agent_score']:>9,.0f} "
+            f"${r['min_opp_score']:>9,.0f} ${r['max_opp_score']:>9,.0f} "
+            f"{r['average_margin']:>+10,.0f}"
+        )
 
 
 if __name__ == "__main__":

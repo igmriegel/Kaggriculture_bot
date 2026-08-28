@@ -17,7 +17,7 @@ reports-download:
 
 .PHONY: benchmarks
 benchmarks:
-	PYTHONPATH=. $(PYTHON) scripts/run_benchmarks.py
+	PYTHONPATH=. $(PYTHON) scripts/run_benchmarks.py -n $(or $(N),30)
 
 .PHONY: package
 package:
