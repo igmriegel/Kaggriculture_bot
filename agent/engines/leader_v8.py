@@ -190,9 +190,7 @@ class LeaderV8Engine(LeaderV7Engine):
         # Dynamic Opening Day 0
         if state.day == 0:
             if state.hour == 1 and not self._animal_count(state) and not any(state.shed.values()):
-                has_strawberry_shop = any(
-                    "STRAWBERRY" in SHOPS.get(s, ()) for s in state.shops
-                )
+                has_strawberry_shop = any("STRAWBERRY" in SHOPS.get(s, ()) for s in state.shops)
                 strawberry_seeds = 3 if has_strawberry_shop else 2
                 melon_seeds = 2 if has_strawberry_shop else 3
                 return [
@@ -217,14 +215,10 @@ class LeaderV8Engine(LeaderV7Engine):
                 1 for t in state.tiles if t.kind == "PLANT" and not t.watered_today
             )
             unfed_animals = sum(
-                1
-                for t in state.tiles
-                if t.kind == "PASTURE" and t.animal and not t.fed_today
+                1 for t in state.tiles if t.kind == "PASTURE" and t.animal and not t.fed_today
             )
             harvestable = sum(
-                1
-                for t in state.tiles
-                if t.kind == "PLANT" and t.yield_units and t.yield_units > 0
+                1 for t in state.tiles if t.kind == "PLANT" and t.yield_units and t.yield_units > 0
             )
 
             pending_actions = unwatered_crops + unfed_animals + harvestable
