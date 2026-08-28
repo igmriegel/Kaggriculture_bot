@@ -13,3 +13,4 @@ kaggle_dataset/agent/
 kaggle_dataset/scripts/
 kaggle_dataset/*.whl
 kaggle_dataset/dist/
+kaggle_dataset/*.py

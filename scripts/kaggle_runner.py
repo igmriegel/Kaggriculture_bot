@@ -31,7 +31,7 @@ def train_rl(total_timesteps: int, output_model_path: str):
     from agent.harness.gym_env import KaggricultureParamGymEnv
 
     env = KaggricultureParamGymEnv()
-    model = PPO("MlpPolicy", env, verbose=1, learning_rate=3e-4, n_steps=128)
+    model = PPO("MlpPolicy", env, verbose=1, learning_rate=3e-4, n_steps=128, device="cpu")
 
     print(f"Training for {total_timesteps} steps...")
     model.learn(total_timesteps=total_timesteps)
@@ -45,7 +45,8 @@ def run_optuna(n_trials: int, output_json_path: str):
     print("=== STARTING OPTUNA PARAMETER OPTIMIZATION ===")
     import optuna
 
-    from scripts.optimize_v10 import objective
+    sys.path.append("/kaggle/input/kaggriculture-bot-code")
+    from optimize_v10 import objective
 
     # Use CMA-ES sampler for evolutionary optimization
     study = optuna.create_study(
