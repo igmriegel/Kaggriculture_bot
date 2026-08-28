@@ -78,6 +78,10 @@ class LeaderV9Engine(LeaderV8Engine):
                 existing_crops[tile.crop] = existing_crops.get(tile.crop, 0) + 1
 
         candidates = ["WHEAT", "CARROT", "TOMATO", "STRAWBERRY", "MELON"]
+        total_workers = 1 + len(state.hand_positions)
+        # Limit seed allocation to what our workforce can realistically plant and maintain
+        max_allocatable_slots = max(6, 2 * total_workers)
+        empty_slots = min(self._empty_tiles(state), max_allocatable_slots)
 
         for _ in range(empty_slots):
             best_crop = None
@@ -168,6 +172,29 @@ class LeaderV9Engine(LeaderV8Engine):
     def _build_market_orders(
         self, state: NormalizedState, goals: tuple[ProductionGoal, ...], tasks: list[Task]
     ) -> list[list[Any]]:
+        # Handle closing mode (Day 26+)
+        # We bypass V8/V6 early return but still generate sales and hire a maintenance crew
+        if state.day >= 26:
+            from agent.domain.economics import projected_prices
+            projected = projected_prices(
+                state.market_inventory, state.shops, state.step, max(0, 720 - state.step)
+            )
+            orders = self._sales(state, projected)
+
+            total_workers = 1 + len(state.hand_positions)
+            active_animals = self._animal_count(state) + self._pending_animals(state)
+            plant_count = sum(1 for t in state.tiles if t.kind == "PLANT")
+
+            cost = self._hire_cost(state.hires_today)
+
+            # Keep a minimum worker crew of 2 (or 3/4 if farm is large) to prevent crops drying/decaying into weeds
+            if (active_animals > 0 or plant_count > 0) and state.money >= cost + 150:
+                target_workers = 4 if (active_animals + plant_count > 12) else (3 if (active_animals + plant_count > 5) else 2)
+                if state.day < 29 and total_workers < target_workers and len(orders) < self.v9_config.max_orders:
+                    orders.append(["HIRE"])
+
+            return orders[: self.v9_config.max_orders]
+
         if state.day == 0:
             return super()._build_market_orders(state, goals, tasks)
 
