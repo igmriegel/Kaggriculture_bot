@@ -152,3 +152,62 @@ def test_remote_submission_summary_excludes_first_self_play_replay(tmp_path) -> 
     )
     assert "OUR WIN" in episode
     assert "score comparison" in episode
+
+
+def test_sales_comparison_table_and_collapsed_milestones(tmp_path) -> None:
+    economic_data = {
+        "items": {
+            "WHEAT": {
+                "sales": [{"quantity": 10, "price": 2.5, "day": 10, "hour": 5}],
+                "opp_sales": [{"quantity": 5, "price": 3.0, "day": 12, "hour": 8}],
+            },
+            "CARROT": {
+                "sales": [],
+                "opp_sales": [],
+            },
+        },
+        "strategic_events": [
+            {"day": 5, "hour": 2, "icon": "🏪", "title": "Shop Opened", "type": "SHOP_UNLOCKED"}
+        ],
+    }
+
+    submission = ReportSubmission(
+        submission_id="remote-2",
+        status="complete",
+        episodes=[
+            ReportEpisode(
+                episode_id="ep-2",
+                score=1000,
+                opponent_score=500,
+                status="complete",
+                winner="submission",
+                turns=30,
+                metrics={"economic": economic_data},
+            ),
+        ],
+    )
+    output = tmp_path / "reports"
+    render_reports([submission], output)
+
+    episode_html = (output / "submissions" / "remote-2" / "episodes" / "ep-2.html").read_text(
+        encoding="utf-8"
+    )
+
+    # Assert Strategic Milestones section is collapsed (no 'open' attribute)
+    assert '<details class="strategic-timeline-details">' in episode_html
+    assert '<details class="strategic-timeline-details" open>' not in episode_html
+
+    # Assert Sales Comparison Table is present and open
+    assert '<details class="sales-comparison-details" open>' in episode_html
+    assert "Sales Comparison Table (Us vs Opponent)" in episode_html
+    assert "Our Sales (Us)" in episode_html
+    assert "Opponent Sales" in episode_html
+
+    # Assert WHEAT row exists with correct values
+    assert "<strong>WHEAT</strong>" in episode_html
+    assert "10" in episode_html  # us units
+    assert "$25" in episode_html  # us value (10 * 2.5)
+    assert "$2.50" in episode_html  # us avg price
+    assert "5" in episode_html  # opp units
+    assert "$15" in episode_html  # opp value (5 * 3.0)
+    assert "$3.00" in episode_html  # opp avg price

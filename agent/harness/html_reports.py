@@ -937,6 +937,7 @@ def _episode_html(submission: ReportSubmission, episode: ReportEpisode) -> str:
         f"{_strategic_milestones_timeline_html(episode)}"
         f"{_item_lifecycle_charts_html(episode)}"
         f"{_harvest_waiting_times_summary_html()}"
+        f"{_sales_comparison_table_html(episode)}"
         f"{daily_table}"
         f"{action_summary}"
         f"{_behavior_details_html(episode)}"
@@ -1162,11 +1163,160 @@ def _strategic_milestones_timeline_html(episode: ReportEpisode) -> str:
 
     return (
         '<section class="chart-container" aria-label="Strategic Milestones & Reaction Timeline">'
-        '<details class="strategic-timeline-details" open>'
+        '<details class="strategic-timeline-details">'
         '<summary style="font-size:1.1rem; font-weight:700; color:#0f172a; cursor:pointer;">'
         f"🏛️ Strategic Milestones & Reaction Timeline ({len(events)} milestones)</summary>"
         f"<div style='margin-top:1.25rem;'>{''.join(cards)}</div>"
         "</details></section>"
+    )
+
+
+def _sales_comparison_table_html(episode: ReportEpisode) -> str:
+    economic = _metric(episode.metrics, "economic", {})
+    items_data = economic.get("items", {}) if isinstance(economic, dict) else {}
+    if not items_data:
+        return ""
+
+    all_items = [
+        "WHEAT",
+        "CARROT",
+        "TOMATO",
+        "STRAWBERRY",
+        "MELON",
+        "MILK",
+        "WOOL",
+        "EGG",
+        "FERTILIZER",
+    ]
+
+    rows = []
+    tot_us_units = 0
+    tot_us_value = 0.0
+    tot_us_orders = 0
+    tot_opp_units = 0
+    tot_opp_value = 0.0
+    tot_opp_orders = 0
+
+    for item in all_items:
+        data = items_data.get(item, {})
+        us_sales = data.get("sales", [])
+        opp_sales = data.get("opp_sales", [])
+
+        us_units = 0
+        us_value = 0.0
+        us_orders = 0
+        for s in us_sales:
+            qty = s.get("quantity")
+            qty = int(qty) if qty is not None else 1
+            price = s.get("price")
+            price = float(price) if price is not None else 0.0
+            us_units += qty
+            us_value += qty * price
+            us_orders += 1
+
+        opp_units = 0
+        opp_value = 0.0
+        opp_orders = 0
+        for s in opp_sales:
+            qty = s.get("quantity")
+            qty = int(qty) if qty is not None else 1
+            price = s.get("price")
+            price = float(price) if price is not None else 0.0
+            opp_units += qty
+            opp_value += qty * price
+            opp_orders += 1
+
+        us_avg_price = us_value / us_units if us_units > 0 else 0.0
+        opp_avg_price = opp_value / opp_units if opp_units > 0 else 0.0
+
+        tot_us_units += us_units
+        tot_us_value += us_value
+        tot_us_orders += us_orders
+        tot_opp_units += opp_units
+        tot_opp_value += opp_value
+        tot_opp_orders += opp_orders
+
+        # Formatting
+        us_units_str = f"{us_units:,}" if us_units > 0 else "-"
+        us_value_str = f"${us_value:,.0f}" if us_units > 0 else "-"
+        us_orders_str = f"{us_orders:,}" if us_orders > 0 else "-"
+        us_avg_price_str = f"${us_avg_price:,.2f}" if us_units > 0 else "-"
+
+        opp_units_str = f"{opp_units:,}" if opp_units > 0 else "-"
+        opp_value_str = f"${opp_value:,.0f}" if opp_units > 0 else "-"
+        opp_orders_str = f"{opp_orders:,}" if opp_orders > 0 else "-"
+        opp_avg_price_str = f"${opp_avg_price:,.2f}" if opp_units > 0 else "-"
+
+        rows.append(
+            f"<tr>"
+            f"<td><strong>{item}</strong></td>"
+            f"<td>{us_units_str}</td>"
+            f"<td>{us_value_str}</td>"
+            f"<td>{us_orders_str}</td>"
+            f"<td style='border-right: 2px solid var(--border);'>{us_avg_price_str}</td>"
+            f"<td>{opp_units_str}</td>"
+            f"<td>{opp_value_str}</td>"
+            f"<td>{opp_orders_str}</td>"
+            f"<td>{opp_avg_price_str}</td>"
+            f"</tr>"
+        )
+
+    tot_us_avg_price = tot_us_value / tot_us_units if tot_us_units > 0 else 0.0
+    tot_opp_avg_price = tot_opp_value / tot_opp_units if tot_opp_units > 0 else 0.0
+
+    tot_us_units_str = f"{tot_us_units:,}" if tot_us_units > 0 else "-"
+    tot_us_value_str = f"${tot_us_value:,.0f}" if tot_us_units > 0 else "-"
+    tot_us_orders_str = f"{tot_us_orders:,}" if tot_us_orders > 0 else "-"
+    tot_us_avg_price_str = f"${tot_us_avg_price:,.2f}" if tot_us_units > 0 else "-"
+
+    tot_opp_units_str = f"{tot_opp_units:,}" if tot_opp_units > 0 else "-"
+    tot_opp_value_str = f"${tot_opp_value:,.0f}" if tot_opp_units > 0 else "-"
+    tot_opp_orders_str = f"{tot_opp_orders:,}" if tot_opp_orders > 0 else "-"
+    tot_opp_avg_price_str = f"${tot_opp_avg_price:,.2f}" if tot_opp_units > 0 else "-"
+
+    total_row = (
+        f"<tr style='border-top: 2px solid var(--border); font-weight: bold; background: #f8fafc;'>"
+        f"<td>Total</td>"
+        f"<td>{tot_us_units_str}</td>"
+        f"<td>{tot_us_value_str}</td>"
+        f"<td>{tot_us_orders_str}</td>"
+        f"<td style='border-right: 2px solid var(--border);'>{tot_us_avg_price_str}</td>"
+        f"<td>{tot_opp_units_str}</td>"
+        f"<td>{tot_opp_value_str}</td>"
+        f"<td>{tot_opp_orders_str}</td>"
+        f"<td>{tot_opp_avg_price_str}</td>"
+        f"</tr>"
+    )
+
+    table_rows = "".join(rows) + total_row
+
+    return (
+        '<details class="sales-comparison-details" open>'
+        "<summary>Sales Comparison Table (Us vs Opponent)</summary>"
+        "<div style='overflow-x:auto; margin-top: 1rem;'>"
+        "<table>"
+        "<thead>"
+        "<tr>"
+        '<th rowspan="2" style="vertical-align: middle;">Item</th>'
+        '<th colspan="4" style="text-align:center; border-right: 2px solid var(--border);">'
+        'Our Sales (Us)</th>'
+        '<th colspan="4" style="text-align:center;">Opponent Sales</th>'
+        "</tr>"
+        "<tr>"
+        "<th>Units</th>"
+        "<th>Value</th>"
+        "<th>Orders</th>"
+        '<th style="border-right: 2px solid var(--border);">Avg Price</th>'
+        "<th>Units</th>"
+        "<th>Value</th>"
+        "<th>Orders</th>"
+        "<th>Avg Price</th>"
+        "</tr>"
+        "</thead>"
+        f"<tbody>{table_rows}</tbody>"
+        "</table>"
+        "</div>"
+        "</details>"
     )
 
 
