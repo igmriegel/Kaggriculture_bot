@@ -26,6 +26,7 @@ class Commitment:
     stage: str = "planned"
     created_day: int = 0
     updated_day: int = 0
+    updated_step: int = 0
     attempts: int = 0
     last_operation: str | None = None
 
@@ -227,7 +228,17 @@ class CycleMemory:
     ) -> bool:
         key = self._task_key(state, operation, target, item)
         commitment = self.commitments.get(key)
-        return commitment is not None and commitment.status == "blocked"
+        if commitment is None or commitment.status != "blocked":
+            return False
+        if commitment.updated_day < state.day:
+            commitment.status = "planned"
+            commitment.attempts = 0
+            return False
+        if state.step - commitment.updated_step >= 2:
+            commitment.status = "planned"
+            commitment.attempts = 0
+            return False
+        return True
 
     def _reconcile(self, state: NormalizedState) -> None:
         if self.last_state is None:
@@ -249,6 +260,7 @@ class CycleMemory:
             else:
                 commitment.status = "blocked"
                 commitment.updated_day = state.day
+                commitment.updated_step = state.step
                 commitment.attempts += 1
                 self.metrics.commitments_replanned += 1
                 self.metrics.plan_observation_divergences += 1
@@ -406,7 +418,7 @@ class CycleMemory:
         commitment = self.commitments.get(key)
         if commitment is None:
             commitment = Commitment(
-                key, kind, "planned", target, expected, created_day=day, updated_day=day
+                key, kind, "planned", target, expected, created_day=day, updated_day=day, updated_step=self.last_step or 0
             )
             self.commitments[key] = commitment
             self.metrics.commitments_created += 1
