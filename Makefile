@@ -35,3 +35,31 @@ submit: package
 .PHONY: optimize-v10
 optimize-v10:
 	PYTHONPATH=. $(PYTHON) scripts/optimize_v10.py
+
+.PHONY: kaggle-build
+kaggle-build:
+	uv build
+
+.PHONY: kaggle-deploy-code
+kaggle-deploy-code: kaggle-build
+	rm -rf kaggle_dataset/dist kaggle_dataset/scripts kaggle_dataset/agent
+	mkdir -p kaggle_dataset/dist kaggle_dataset/scripts
+	cp dist/*.whl kaggle_dataset/
+	cp scripts/kaggle_runner.py kaggle_dataset/scripts/
+	cp scripts/optimize_v10.py kaggle_dataset/scripts/
+	cp -r agent kaggle_dataset/
+	# Try to create dataset first, if exists, update it as a new version
+	kaggle datasets version -p kaggle_dataset/ -m "Update code wheel and runners" || kaggle datasets create -p kaggle_dataset/ -u
+
+.PHONY: kaggle-run
+kaggle-run:
+	kaggle kernels push -p kaggle_kernel/
+
+.PHONY: kaggle-status
+kaggle-status:
+	kaggle kernels status igmriegel/kaggriculture-optimization
+
+.PHONY: kaggle-retrieve
+kaggle-retrieve:
+	mkdir -p reports/kaggle
+	kaggle kernels output igmriegel/kaggriculture-optimization -p reports/kaggle/

@@ -179,13 +179,7 @@ class TestLeaderV10Engine:
         # Hold threshold is 0.85, so 70 < 150 * 0.85 is True.
         # Cash is $2000 (above min liquidity of 1500).
         # It should NOT generate a SELL order for MELON.
-        obs = _observation(
-            day=10, 
-            hour=1, 
-            money=2000, 
-            prices={"MELON": 70}, 
-            shed={"MELON": 5}
-        )
+        obs = _observation(day=10, hour=1, money=2000, prices={"MELON": 70}, shed={"MELON": 5})
         state = NormalizedState.from_observation(obs)
         projected = {"MELON": 150}
         sales = engine._sales(state, projected)
@@ -194,11 +188,7 @@ class TestLeaderV10Engine:
         # Conversely, if we have low cash ($500 < $1500), it should ignore speculation
         # and SELL to get cash.
         obs_low_cash = _observation(
-            day=10, 
-            hour=1, 
-            money=500, 
-            prices={"MELON": 70}, 
-            shed={"MELON": 5}
+            day=10, hour=1, money=500, prices={"MELON": 70}, shed={"MELON": 5}
         )
         state_low_cash = NormalizedState.from_observation(obs_low_cash)
         sales_low_cash = engine._sales(state_low_cash, projected)
@@ -224,7 +214,7 @@ class TestLeaderV10Engine:
             hour=1,
             money=5000,
             opponent_tiles=opponent_tiles,
-            shops=["melon_shop", "strawberry_shop", "tomato_shop"]
+            shops=["melon_shop", "strawberry_shop", "tomato_shop"],
         )
         state = NormalizedState.from_observation(obs)
         portfolio = engine._dynamic_crop_portfolio(state, horizon=25, empty_slots=5)

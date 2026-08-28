@@ -1,0 +1,18 @@
+{
+  "id": "igmriegel/kaggriculture-optimization",
+  "title": "kaggriculture-optimization",
+  "code_file": "run.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "true",
+  "enable_tpu": "false",
+  "enable_internet": "true",
+  "dataset_sources": [
+    "igmriegel/kaggriculture-bot-code"
+  ],
+  "competition_sources": [
+    "kaggriculture"
+  ],
+  "kernel_sources": []
+}
