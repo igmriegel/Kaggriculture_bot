@@ -19,6 +19,10 @@ reports-download:
 benchmarks:
 	PYTHONPATH=. $(PYTHON) scripts/run_benchmarks.py -n $(or $(N),30)
 
+.PHONY: summarize
+summarize:
+	PYTHONPATH=. $(PYTHON) scripts/summarize_replay.py $(FILE)
+
 .PHONY: package
 package:
 	$(PYTHON) -m agent.harness package-submission --output dist/submission.tar.gz
