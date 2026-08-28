@@ -117,9 +117,9 @@ class KaggricultureParamGymEnv(gym.Env):
         self.state = NormalizedState.from_observation(self.last_raw_obs)
         self.current_day = self.state.day
 
-        # Reward calculation: cash margin gain
+        # Reward calculation: cash margin gain scaled to prevent gradient explosion
         current_money = self.state.money
-        reward = float(current_money - self.last_money)
+        reward = float(current_money - self.last_money) / 1000.0
         self.last_money = current_money
 
         terminated = self.adapter.finished()
@@ -129,7 +129,7 @@ class KaggricultureParamGymEnv(gym.Env):
         if terminated or truncated:
             res = self.adapter.result()
             rewards = res.get("rewards", [0, 0])
-            margin = rewards[0] - rewards[1]
+            margin = (rewards[0] - rewards[1]) / 1000.0
             reward += float(margin)  # heavily incentivize winning
 
         return self._get_obs(self.state), reward, terminated, truncated, {}

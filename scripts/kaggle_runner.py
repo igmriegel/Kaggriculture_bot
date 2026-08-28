@@ -23,14 +23,27 @@ def _suppress_output():
         os.close(fd_devnull)
 
 
+def make_env(seed: int):
+    from agent.harness.gym_env import KaggricultureParamGymEnv
+
+    def _init():
+        env = KaggricultureParamGymEnv()
+        # Seed will be set during VecEnv init, but we can reset with seed here
+        return env
+
+    return _init
+
+
 def train_rl(total_timesteps: int, output_model_path: str):
     """Train PPO agent to predict V10 parameters dynamically."""
     print("=== STARTING PPO REINFORCEMENT LEARNING TRAINING ===")
     from stable_baselines3 import PPO
+    from stable_baselines3.common.vec_env import SubprocVecEnv
 
-    from agent.harness.gym_env import KaggricultureParamGymEnv
+    num_cpu = os.cpu_count() or 2
+    print(f"Creating parallelized environment with {num_cpu} workers...")
 
-    env = KaggricultureParamGymEnv()
+    env = SubprocVecEnv([make_env(i) for i in range(num_cpu)])
     model = PPO("MlpPolicy", env, verbose=1, learning_rate=3e-4, n_steps=128, device="cpu")
 
     print(f"Training for {total_timesteps} steps...")
@@ -53,8 +66,9 @@ def run_optuna(n_trials: int, output_json_path: str):
         direction="maximize", sampler=optuna.samplers.CmaEsSampler(warn_independent_sampling=False)
     )
 
-    print(f"Running {n_trials} trials...")
-    study.optimize(objective, n_trials=n_trials)
+    num_cpu = os.cpu_count() or 2
+    print(f"Running {n_trials} trials in parallel using {num_cpu} jobs...")
+    study.optimize(objective, n_trials=n_trials, n_jobs=num_cpu)
 
     print("\n=== OPTIMIZATION COMPLETE ===")
     print(f"Best Trial Value (Margin vs V9): ${study.best_value:,.2f}")
