@@ -16,12 +16,12 @@ Este documento registra o planejamento em etapas (sprints) para a implementaçã
 - [x] Lógica: Se o preço de um crop cair abaixo do limite e houver caixa para segurar a operação, reter no inventário.
 - [x] Escrever teste unitário para garantir que crops valiosos não sejam vendidos em baixa.
 
-## Sprint 3: LeaderV10.2 (Opponent-Aware Anti-Monopólio) - [TODO]
+## Sprint 3: LeaderV10.2 (Opponent-Aware Anti-Monopólio) - [CONCLUÍDO]
 **Objetivo:** Desviar a atenção de safras dominadas pelo adversário, evitando colapso mutuo de preços.
-- [ ] Adicionar `opponent_crop_penalty` ao `V10Config`.
-- [ ] Modificar `_dynamic_crop_portfolio` para iterar sobre as plantas no tabuleiro do oponente (`state.opponent_tiles`).
-- [ ] Aplicar penalidade de ROI para colheitas nas quais o inimigo tem um monopólio visível.
-- [ ] Escrever testes garantindo o pivô automático (ex: trocar Melão por Morango se o oponente plantar Melão).
+- [x] Adicionar `opponent_crop_penalty` ao `V10Config`.
+- [x] Modificar `_dynamic_crop_portfolio` para iterar sobre as plantas no tabuleiro do oponente (`state.opponent_tiles`).
+- [x] Aplicar penalidade de ROI para colheitas nas quais o inimigo tem um monopólio visível.
+- [x] Escrever testes garantindo o pivô automático (ex: trocar Melão por Morango se o oponente plantar Melão).
 
 ## Sprint 4: LeaderV10.3 (Treinamento Genético / CMA-ES) - [TODO]
 **Objetivo:** Deixar a máquina descobrir matematicamente a combinação perfeita para todos os parâmetros.
