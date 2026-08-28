@@ -12,6 +12,7 @@ from agent.engines.leader_v6 import LeaderV6Engine
 from agent.engines.leader_v7 import LeaderV7Engine
 from agent.engines.leader_v8 import LeaderV8Engine
 from agent.engines.leader_v9 import LeaderV9Engine
+from agent.engines.leader_v10 import LeaderV10Engine
 from agent.harness.adapters.kaggle import KaggleEnvironmentAdapter
 from agent.harness.models import Scenario
 from agent.harness.registry import (
@@ -51,6 +52,8 @@ def register_builtins() -> None:
         register_agent("leader-v8", LeaderV8Engine())
     if "leader-v9" not in _names("agent"):
         register_agent("leader-v9", LeaderV9Engine())
+    if "leader-v10" not in _names("agent"):
+        register_agent("leader-v10", LeaderV10Engine())
     if "json" not in _names("reporter"):
         register_reporter("json", JsonReporter)
     if "jsonl" not in _names("reporter"):
