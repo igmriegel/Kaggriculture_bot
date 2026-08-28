@@ -14,3 +14,7 @@ reports-local:
 
 reports-download:
 	$(PYTHON) -m scripts.update_submission_reports --reports-dir "$(REPORTS_DIR)" --competition "$(COMPETITION)" --agent-name "$(AGENT_NAME)" --remote --download-only
+
+.PHONY: benchmarks
+benchmarks:
+	$(PYTHON) scripts/run_benchmarks.py
