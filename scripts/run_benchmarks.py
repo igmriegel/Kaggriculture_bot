@@ -90,7 +90,8 @@ def run_evaluation(agent_name, opp_name, agent_class, opp_class, num_matches=30)
             }
         )
         print(
-            f"Match {seed:>2}/{num_matches}: {agent_name.upper()}=${score_agent:>7,.0f} "
+            f"Match {seed:>2}/{num_matches} [W:{wins} L:{losses} T:{ties}]: "
+            f"{agent_name.upper()}=${score_agent:>7,.0f} "
             f"vs {opp_name.upper()}=${score_opp:>7,.0f} | Margin={margin:>+8,.0f} | "
             f"{res} ({elapsed:.1f}s)"
         )
