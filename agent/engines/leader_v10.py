@@ -48,6 +48,9 @@ class V10Config(LeaderV8Config):
     # Market deal parameters
     melon_deal_price: int = 85
     strawberry_deal_price: int = 115
+    # Sprint 2: Market Speculation
+    speculation_hold_threshold: float = 0.85
+    speculation_min_liquidity: int = 1500
 
 
 class LeaderV10Engine(LeaderV8Engine):
@@ -176,7 +179,6 @@ class LeaderV10Engine(LeaderV8Engine):
         return base_roi
 
     def _tasks(self, state: NormalizedState, goals: tuple[ProductionGoal, ...]) -> list[Task]:
-
         tasks = super()._tasks(state, goals)
 
         filtered_tasks: list[Task] = []
@@ -331,6 +333,16 @@ class LeaderV10Engine(LeaderV8Engine):
                     sellable = max(0, amount - fert_to_keep)
             else:
                 sellable = amount
+
+            # Sprint 2: Market Speculation
+            if sellable > 0 and projected and item in projected and item in state.prices:
+                expected_price = projected[item]
+                current_price = state.prices[item]
+                if (
+                    current_price < expected_price * self.v10_config.speculation_hold_threshold
+                    and state.money > self.v10_config.speculation_min_liquidity
+                ):
+                    sellable = 0
 
             if sellable > 0:
                 orders.append(["SELL", item, sellable])

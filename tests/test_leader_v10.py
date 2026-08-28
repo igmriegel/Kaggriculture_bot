@@ -17,7 +17,21 @@ def _observation(
     prices: dict[str, int] | None = None,
     shops: list[str] | None = None,
     tiles: list[list[dict[str, Any] | None]] | None = None,
+    shed: dict[str, int] | None = None,
 ) -> dict[str, Any]:
+    base_shed = {
+        "WHEAT": 10,
+        "CARROT": 0,
+        "TOMATO": 0,
+        "STRAWBERRY": 0,
+        "MELON": 0,
+        "MILK": 0,
+        "WOOL": 0,
+        "EGG": 0,
+        "FERTILIZER": 5,
+    }
+    if shed:
+        base_shed.update(shed)
     base_inv = {
         "WHEAT": 10000,
         "CARROT": 10000,
@@ -75,17 +89,7 @@ def _observation(
         ],
         "market": {"inventory": base_inv, "prices": base_prices},
         "private": {
-            "shed": {
-                "WHEAT": 10,
-                "CARROT": 0,
-                "TOMATO": 0,
-                "STRAWBERRY": 0,
-                "MELON": 0,
-                "MILK": 0,
-                "WOOL": 0,
-                "EGG": 0,
-                "FERTILIZER": 5,
-            },
+            "shed": base_shed,
             "seeds": {"WHEAT": 0, "CARROT": 0, "TOMATO": 0, "STRAWBERRY": 0, "MELON": 0},
             "inventories": [{}],
         },
@@ -162,3 +166,35 @@ class TestLeaderV10Engine:
         orders = engine._build_market_orders(state, goals, [])
         buy_animal = [o for o in orders if o[0] == "BUY_ANIMAL"]
         assert len(buy_animal) > 0
+
+    def test_market_speculation_holds_on_low_price(self) -> None:
+        """Shed inventory is not sold when current crop price is deflated compared to projection."""
+        engine = LeaderV10Engine()
+        # MELON current price is $70, expected/projected is $150.
+        # Hold threshold is 0.85, so 70 < 150 * 0.85 is True.
+        # Cash is $2000 (above min liquidity of 1500).
+        # It should NOT generate a SELL order for MELON.
+        obs = _observation(
+            day=10, 
+            hour=1, 
+            money=2000, 
+            prices={"MELON": 70}, 
+            shed={"MELON": 5}
+        )
+        state = NormalizedState.from_observation(obs)
+        projected = {"MELON": 150}
+        sales = engine._sales(state, projected)
+        assert len([s for s in sales if s[0] == "SELL" and s[1] == "MELON"]) == 0
+
+        # Conversely, if we have low cash ($500 < $1500), it should ignore speculation
+        # and SELL to get cash.
+        obs_low_cash = _observation(
+            day=10, 
+            hour=1, 
+            money=500, 
+            prices={"MELON": 70}, 
+            shed={"MELON": 5}
+        )
+        state_low_cash = NormalizedState.from_observation(obs_low_cash)
+        sales_low_cash = engine._sales(state_low_cash, projected)
+        assert len([s for s in sales_low_cash if s[0] == "SELL" and s[1] == "MELON"]) > 0
