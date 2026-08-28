@@ -20,7 +20,7 @@ from agent.engines.leader_v6 import LeaderV6Config, LeaderV6Engine
 from agent.engines.leader_v7 import LeaderV7Config, LeaderV7Engine
 from agent.engines.leader_v8 import LeaderV8Config, LeaderV8Engine
 from agent.engines.leader_v9 import LeaderV9Config, LeaderV9Engine
-from agent.engines.leader_v10 import LeaderV10Config, LeaderV10Engine
+from agent.engines.leader_v10 import LeaderV10Engine, V10Config
 
 __all__ = [
     "CompetitiveEngine",
@@ -45,7 +45,7 @@ __all__ = [
     "LeaderV8Engine",
     "LeaderV9Config",
     "LeaderV9Engine",
-    "LeaderV10Config",
+    "V10Config",
     "LeaderV10Engine",
     "MarketPolicy",
     "RoutePlanner",

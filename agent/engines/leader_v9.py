@@ -141,7 +141,7 @@ class LeaderV9Engine(LeaderV8Engine):
         return base_roi
 
     def _tasks(self, state: NormalizedState, goals: tuple[ProductionGoal, ...]) -> list[Task]:
-        from dataclasses import replace
+
         tasks = super()._tasks(state, goals)
 
         filtered_tasks: list[Task] = []
@@ -176,6 +176,7 @@ class LeaderV9Engine(LeaderV8Engine):
         # We bypass V8/V6 early return but still generate sales and hire a maintenance crew
         if state.day >= 26:
             from agent.domain.economics import projected_prices
+
             projected = projected_prices(
                 state.market_inventory, state.shops, state.step, max(0, 720 - state.step)
             )
@@ -189,8 +190,16 @@ class LeaderV9Engine(LeaderV8Engine):
 
             # Keep a minimum worker crew of 2 (or 3/4 if farm is large) to prevent crops drying/decaying into weeds
             if (active_animals > 0 or plant_count > 0) and state.money >= cost + 150:
-                target_workers = 4 if (active_animals + plant_count > 12) else (3 if (active_animals + plant_count > 5) else 2)
-                if state.day < 29 and total_workers < target_workers and len(orders) < self.v9_config.max_orders:
+                target_workers = (
+                    4
+                    if (active_animals + plant_count > 12)
+                    else (3 if (active_animals + plant_count > 5) else 2)
+                )
+                if (
+                    state.day < 29
+                    and total_workers < target_workers
+                    and len(orders) < self.v9_config.max_orders
+                ):
                     orders.append(["HIRE"])
 
             return orders[: self.v9_config.max_orders]
@@ -270,7 +279,9 @@ class LeaderV9Engine(LeaderV8Engine):
                 sellable = max(0, amount - needed_wheat)
             elif item == "FERTILIZER" and not is_closing:
                 regrowable_count = sum(
-                    1 for t in state.tiles if t.kind == "PLANT" and t.crop in ("STRAWBERRY", "TOMATO")
+                    1
+                    for t in state.tiles
+                    if t.kind == "PLANT" and t.crop in ("STRAWBERRY", "TOMATO")
                 )
                 if regrowable_count == 0 or state.money < 150:
                     sellable = amount

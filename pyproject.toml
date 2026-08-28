@@ -12,7 +12,10 @@ dev = [
     "ruff>=0.12,<0.13",
     "ty>=0.0.1a0",
 ]
-competition = ["kaggle-environments>=1.18,<2"]
+competition = [
+    "kaggle-environments>=1.18,<2",
+    "optuna>=4.9.0",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

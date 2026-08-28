@@ -3,7 +3,6 @@
 
 import argparse
 import json
-import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -14,12 +13,15 @@ WORK_OPS = {"CARE", "COLLECT_FERTILIZER", "FEED", "FERTILIZE", "HARVEST", "PLANT
 
 
 def parse_replay(replay_path: Path) -> dict[str, Any]:
-    with open(replay_path, "r", encoding="utf-8") as f:
+    with open(replay_path, encoding="utf-8") as f:
         replay = json.load(f)
 
     # Determine players
     agents = replay.get("info", {}).get("Agents", [])
-    names = [entry.get("Name", f"Player_{i}") if isinstance(entry, dict) else f"Player_{i}" for i, entry in enumerate(agents)]
+    names = [
+        entry.get("Name", f"Player_{i}") if isinstance(entry, dict) else f"Player_{i}"
+        for i, entry in enumerate(agents)
+    ]
     if len(names) < 1:
         names = ["Player_0", "Player_1"]
 
@@ -40,7 +42,7 @@ def parse_replay(replay_path: Path) -> dict[str, Any]:
             "weeds_spawned": 0,
             "market": Counter(),
             "milestones": {},
-            "grid_prev": {}
+            "grid_prev": {},
         },
         1: {
             "name": p1_name,
@@ -50,8 +52,8 @@ def parse_replay(replay_path: Path) -> dict[str, Any]:
             "weeds_spawned": 0,
             "market": Counter(),
             "milestones": {},
-            "grid_prev": {}
-        }
+            "grid_prev": {},
+        },
     }
 
     for step_idx, step in enumerate(steps):
@@ -75,15 +77,19 @@ def parse_replay(replay_path: Path) -> dict[str, Any]:
 
             # Record milestone snapshots
             if day not in stats[p_idx]["milestones"]:
-                tiles = [tile for row in farm.get("tiles", []) if isinstance(row, list) for tile in row]
+                tiles = [
+                    tile for row in farm.get("tiles", []) if isinstance(row, list) for tile in row
+                ]
                 animals = sum(1 for tile in tiles if isinstance(tile, dict) and tile.get("animal"))
-                crops = sum(1 for tile in tiles if isinstance(tile, dict) and tile.get("kind") == "PLANT")
+                crops = sum(
+                    1 for tile in tiles if isinstance(tile, dict) and tile.get("kind") == "PLANT"
+                )
                 hands = len(farm.get("hands", [])) if isinstance(farm.get("hands"), list) else 0
                 stats[p_idx]["milestones"][day] = {
                     "cash": int(farm.get("money", 0)),
                     "workers": 1 + hands,
                     "crops": crops,
-                    "animals": animals
+                    "animals": animals,
                 }
 
             # Grid analysis to count plants turning into weeds
@@ -93,16 +99,17 @@ def parse_replay(replay_path: Path) -> dict[str, Any]:
                     continue
                 for x, tile in enumerate(row):
                     if isinstance(tile, dict):
-                        tiles_flat[(x, y)] = {
-                            "kind": tile.get("kind"),
-                            "crop": tile.get("crop")
-                        }
+                        tiles_flat[(x, y)] = {"kind": tile.get("kind"), "crop": tile.get("crop")}
 
             grid_prev = stats[p_idx]["grid_prev"]
             if grid_prev:
                 for pos, tile in tiles_flat.items():
                     prev_tile = grid_prev.get(pos)
-                    if prev_tile and prev_tile.get("kind") == "PLANT" and tile.get("kind") == "WEED":
+                    if (
+                        prev_tile
+                        and prev_tile.get("kind") == "PLANT"
+                        and tile.get("kind") == "WEED"
+                    ):
                         stats[p_idx]["weeds_spawned"] += 1
             stats[p_idx]["grid_prev"] = tiles_flat
 
@@ -145,17 +152,32 @@ def parse_replay(replay_path: Path) -> dict[str, Any]:
             last_record = steps[-1][p_idx] if p_idx < len(steps[-1]) else {}
             last_obs = last_record.get("observation", {}) if isinstance(last_record, dict) else {}
             last_farms = last_obs.get("farms", []) if isinstance(last_obs, dict) else []
-            last_farm = last_farms[p_idx] if isinstance(last_farms, list) and p_idx < len(last_farms) else {}
+            last_farm = (
+                last_farms[p_idx]
+                if isinstance(last_farms, list) and p_idx < len(last_farms)
+                else {}
+            )
             if isinstance(last_farm, dict):
-                tiles = [tile for row in last_farm.get("tiles", []) if isinstance(row, list) for tile in row]
+                tiles = [
+                    tile
+                    for row in last_farm.get("tiles", [])
+                    if isinstance(row, list)
+                    for tile in row
+                ]
                 animals = sum(1 for tile in tiles if isinstance(tile, dict) and tile.get("animal"))
-                crops = sum(1 for tile in tiles if isinstance(tile, dict) and tile.get("kind") == "PLANT")
-                hands = len(last_farm.get("hands", [])) if isinstance(last_farm.get("hands"), list) else 0
+                crops = sum(
+                    1 for tile in tiles if isinstance(tile, dict) and tile.get("kind") == "PLANT"
+                )
+                hands = (
+                    len(last_farm.get("hands", []))
+                    if isinstance(last_farm.get("hands"), list)
+                    else 0
+                )
                 stats[p_idx]["milestones"][30] = {
                     "cash": int(last_farm.get("money", 0)),
                     "workers": 1 + hands,
                     "crops": crops,
-                    "animals": animals
+                    "animals": animals,
                 }
 
     return {
@@ -163,7 +185,7 @@ def parse_replay(replay_path: Path) -> dict[str, Any]:
         "seed": replay.get("info", {}).get("seed", "unknown"),
         "p0_score": rewards[0] if len(rewards) > 0 else 0,
         "p1_score": rewards[1] if len(rewards) > 1 else 0,
-        "stats": stats
+        "stats": stats,
     }
 
 
@@ -174,22 +196,30 @@ def generate_markdown(data: dict[str, Any]) -> str:
 
     md = []
     md.append(f"# Replay Summary (Episode: {data['episode_id']} | Seed: {data['seed']})")
-    
-    winner = p0["name"] if data["p0_score"] > data["p1_score"] else (p1["name"] if data["p1_score"] > data["p0_score"] else "Tie")
-    md.append(f"**Winner:** {winner} (Scores: {p0['name']} = ${data['p0_score']:,} vs {p1['name']} = ${data['p1_score']:,})\n")
+
+    winner = (
+        p0["name"]
+        if data["p0_score"] > data["p1_score"]
+        else (p1["name"] if data["p1_score"] > data["p0_score"] else "Tie")
+    )
+    md.append(
+        f"**Winner:** {winner} (Scores: {p0['name']} = ${data['p0_score']:,} vs {p1['name']} = ${data['p1_score']:,})\n"
+    )
 
     md.append("## Game Milestones (Day | Cash / Workers / Crops / Animals)")
-    md.append("| Day | " + f"{p0['name']} (Cash/W/C/A)" + " | " + f"{p1['name']} (Cash/W/C/A)" + " |")
+    md.append(
+        "| Day | " + f"{p0['name']} (Cash/W/C/A)" + " | " + f"{p1['name']} (Cash/W/C/A)" + " |"
+    )
     md.append("|---|---|---|")
-    
+
     milestone_days = [0, 5, 10, 15, 20, 25, 30]
     for d in milestone_days:
         p0_m = p0["milestones"].get(d, {"cash": 0, "workers": 0, "crops": 0, "animals": 0})
         p1_m = p1["milestones"].get(d, {"cash": 0, "workers": 0, "crops": 0, "animals": 0})
-        
+
         p0_str = f"${p0_m['cash']:,} / {p0_m['workers']} / {p0_m['crops']} / {p0_m['animals']}"
         p1_str = f"${p1_m['cash']:,} / {p1_m['workers']} / {p1_m['crops']} / {p1_m['animals']}"
-        
+
         md.append(f"| Day {d:<2} | {p0_str} | {p1_str} |")
     md.append("")
 
@@ -202,7 +232,7 @@ def generate_markdown(data: dict[str, Any]) -> str:
     md.append("## Action Performance")
     md.append("| Metric | " + p0["name"] + " | " + p1["name"] + " |")
     md.append("|---|---|---|")
-    
+
     actions_to_show = [
         ("Watering Actions", "WATER"),
         ("Harvesting Actions", "HARVEST"),
@@ -212,29 +242,35 @@ def generate_markdown(data: dict[str, Any]) -> str:
         ("Collect Fertilizer", "COLLECT_FERTILIZER"),
         ("Planting Actions", "PLANT"),
         ("Total Hires", "HIRE"),
-        ("Land Unlocks", "BUY_LAND")
+        ("Land Unlocks", "BUY_LAND"),
     ]
     for label, op in actions_to_show:
         md.append(f"| {label} | {p0['actions'].get(op, 0)} | {p1['actions'].get(op, 0)} |")
-    
+
     md.append(f"| Idle (PASS) Turns | {p0['idle_turns']} | {p1['idle_turns']} |")
     md.append("")
 
     md.append("## Failure Indicators")
-    md.append(f"- **Crops dried/decayed into Weeds:** {p0['weeds_spawned']} times ({p0['name']}) vs {p1['weeds_spawned']} times ({p1['name']})")
-    
+    md.append(
+        f"- **Crops dried/decayed into Weeds:** {p0['weeds_spawned']} times ({p0['name']}) vs {p1['weeds_spawned']} times ({p1['name']})"
+    )
+
     return "\n".join(md)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate ultra-compact replay summaries.")
-    parser.add_argument("target", type=str, help="Path to Kaggle replay JSON file, directory, or submission ID (e.g. 55680358)")
+    parser.add_argument(
+        "target",
+        type=str,
+        help="Path to Kaggle replay JSON file, directory, or submission ID (e.g. 55680358)",
+    )
     args = parser.parse_args()
 
     target_path = Path(args.target)
     is_sub_id = False
     sub_id = args.target
-    
+
     # Check if target is a submission ID
     if not target_path.exists():
         # Check canonical HTML reports submissions folder first
@@ -248,7 +284,9 @@ def main():
                 target_path = kaggle_dir
                 is_sub_id = True
             else:
-                print(f"Error: {args.target} does not exist and was not found under reports/submissions/ or reports/kaggle/submission-")
+                print(
+                    f"Error: {args.target} does not exist and was not found under reports/submissions/ or reports/kaggle/submission-"
+                )
                 sys.exit(1)
     else:
         # Check if the path itself is inside reports/submissions/<sub_id>
@@ -271,7 +309,11 @@ def main():
                 if "_summary" not in path.name and "audit" not in path.name:
                     files.append(path)
         if not files:
-            files = [p for p in target_path.rglob("*.json") if "_summary" not in p.name and "audit" not in p.name]
+            files = [
+                p
+                for p in target_path.rglob("*.json")
+                if "_summary" not in p.name and "audit" not in p.name
+            ]
 
     if not files:
         print(f"Error: No replay files found for target {args.target}")
@@ -286,7 +328,7 @@ def main():
         output_dir = Path("reports/summaries")
         if target_path.is_dir():
             output_dir = output_dir / target_path.name
-            
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
     for i, file_path in enumerate(files, 1):
@@ -294,11 +336,11 @@ def main():
         try:
             data = parse_replay(file_path)
             markdown_content = generate_markdown(data)
-            
+
             output_name = file_path.stem + "_summary.md"
             output_path = output_dir / output_name
             output_path.write_text(markdown_content, encoding="utf-8")
-            
+
             if len(files) == 1:
                 print(markdown_content)
             else:

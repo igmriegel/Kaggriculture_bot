@@ -418,7 +418,14 @@ class CycleMemory:
         commitment = self.commitments.get(key)
         if commitment is None:
             commitment = Commitment(
-                key, kind, "planned", target, expected, created_day=day, updated_day=day, updated_step=self.last_step or 0
+                key,
+                kind,
+                "planned",
+                target,
+                expected,
+                created_day=day,
+                updated_day=day,
+                updated_step=self.last_step or 0,
             )
             self.commitments[key] = commitment
             self.metrics.commitments_created += 1

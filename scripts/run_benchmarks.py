@@ -39,7 +39,6 @@ with _suppress_output():
     from agent.engines.leader_v7 import LeaderV7Engine
     from agent.engines.leader_v8 import LeaderV8Engine
     from agent.engines.leader_v9 import LeaderV9Engine
-    from agent.engines.leader_v10 import LeaderV10Engine
     from agent.harness.adapters.kaggle import KaggleEnvironmentAdapter
     from agent.harness.builtins import register_builtins
     from agent.harness.execution import EpisodeRunner
@@ -147,14 +146,26 @@ def run_evaluation(agent_name, opp_name, agent_class, opp_class, num_matches=30)
 
 def main():
     parser = argparse.ArgumentParser(description="Run benchmark evaluations")
-    parser.add_argument("-n", "--num-matches", type=int, default=30, help="Number of matches per matchup (default: 30)")
+    parser.add_argument(
+        "-n",
+        "--num-matches",
+        type=int,
+        default=30,
+        help="Number of matches per matchup (default: 30)",
+    )
     args = parser.parse_args()
 
     os.makedirs("reports/benchmarks", exist_ok=True)
 
-    v6_report = run_evaluation("leader-v9", "leader-v6", LeaderV9Engine, LeaderV6Engine, num_matches=args.num_matches)
-    v7_report = run_evaluation("leader-v9", "leader-v7", LeaderV9Engine, LeaderV7Engine, num_matches=args.num_matches)
-    v8_report = run_evaluation("leader-v9", "leader-v8", LeaderV9Engine, LeaderV8Engine, num_matches=args.num_matches)
+    v6_report = run_evaluation(
+        "leader-v9", "leader-v6", LeaderV9Engine, LeaderV6Engine, num_matches=args.num_matches
+    )
+    v7_report = run_evaluation(
+        "leader-v9", "leader-v7", LeaderV9Engine, LeaderV7Engine, num_matches=args.num_matches
+    )
+    v8_report = run_evaluation(
+        "leader-v9", "leader-v8", LeaderV9Engine, LeaderV8Engine, num_matches=args.num_matches
+    )
 
     all_reports = {"v6": v6_report, "v7": v7_report, "v8": v8_report}
 
@@ -165,7 +176,9 @@ def main():
         f.write("# Consolidated Benchmarks Report (V9)\n\n")
 
         f.write("## Summary\n\n")
-        f.write("| Matchup | Win Rate | Avg V9 | Avg Opp | Min V9 | Max V9 | Min Opp | Max Opp | Margin |\n")
+        f.write(
+            "| Matchup | Win Rate | Avg V9 | Avg Opp | Min V9 | Max V9 | Min Opp | Max Opp | Margin |\n"
+        )
         f.write("|:---|:---:|---:|---:|---:|---:|---:|---:|---:|\n")
         for key in ["v6", "v7", "v8"]:
             r = all_reports[key]
