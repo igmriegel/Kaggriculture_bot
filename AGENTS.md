@@ -105,3 +105,7 @@ benchmark evidence is required; a single favorable seed is insufficient.
 The canonical commands are defined in `pyproject.toml`, `.pre-commit-config.yaml`,
 and the project README as they are introduced. Prefer `uv run ...` so local and
 CI execution use the same environment.
+
+### Command Execution Delegation
+- **IMPORTANT**: The AI agent must **NEVER** execute `make` commands directly on the user's system (e.g., `make benchmarks`, `make summarize`).
+- Instead, the AI must explicitly ask the user to run the `make` command, hand over the execution responsibility, and wait for the user to confirm completion before taking further steps.
