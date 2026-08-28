@@ -51,6 +51,8 @@ class V10Config(LeaderV8Config):
     # Sprint 2: Market Speculation
     speculation_hold_threshold: float = 0.85
     speculation_min_liquidity: int = 1500
+    # Sprint 3: Anti-Monopoly
+    opponent_crop_penalty: float = 0.05
 
 
 class LeaderV10Engine(LeaderV8Engine):
@@ -166,16 +168,23 @@ class LeaderV10Engine(LeaderV8Engine):
         # Labor Friction Penalty
         if crop == "WHEAT":
             labor_friction_penalty = 12.0
-            return max(0.0, base_roi - labor_friction_penalty)
+            base_roi = max(0.0, base_roi - labor_friction_penalty)
         elif crop == "CARROT":
             labor_friction_penalty = 6.0
-            return max(0.0, base_roi - labor_friction_penalty)
+            base_roi = max(0.0, base_roi - labor_friction_penalty)
         elif crop == "STRAWBERRY" and state.day < self.v10_config.strawberry_roi_cutoff_day:
             # Boost strawberry early game ROI to accelerate capital accumulation
-            return base_roi * self.v10_config.strawberry_roi_multiplier
+            base_roi = base_roi * self.v10_config.strawberry_roi_multiplier
         elif crop == "MELON" and state.day < self.v10_config.melon_roi_cutoff_day:
             # Boost melon early/mid game ROI
-            return base_roi * self.v10_config.melon_roi_multiplier
+            base_roi = base_roi * self.v10_config.melon_roi_multiplier
+
+        # Sprint 3: Anti-Monopoly Crop Penalty
+        opp_count = sum(1 for t in state.opponent_tiles if t.kind == "PLANT" and t.crop == crop)
+        if opp_count > 0:
+            penalty = opp_count * self.v10_config.opponent_crop_penalty
+            base_roi = base_roi * max(0.0, 1.0 - penalty)
+
         return base_roi
 
     def _tasks(self, state: NormalizedState, goals: tuple[ProductionGoal, ...]) -> list[Task]:

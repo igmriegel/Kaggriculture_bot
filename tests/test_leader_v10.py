@@ -17,6 +17,7 @@ def _observation(
     prices: dict[str, int] | None = None,
     shops: list[str] | None = None,
     tiles: list[list[dict[str, Any] | None]] | None = None,
+    opponent_tiles: list[list[dict[str, Any] | None]] | None = None,
     shed: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     base_shed = {
@@ -83,7 +84,11 @@ def _observation(
                 "hands": [],
                 "hires_today": 0,
                 "money": 3000.0,
-                "tiles": [[None] * 10 for _ in range(10)],
+                "tiles": (
+                    opponent_tiles
+                    if opponent_tiles is not None
+                    else [[None] * 10 for _ in range(10)]
+                ),
                 "unlocked_quadrants": ["NW"],
             },
         ],
@@ -198,3 +203,32 @@ class TestLeaderV10Engine:
         state_low_cash = NormalizedState.from_observation(obs_low_cash)
         sales_low_cash = engine._sales(state_low_cash, projected)
         assert len([s for s in sales_low_cash if s[0] == "SELL" and s[1] == "MELON"]) > 0
+
+    def test_opponent_aware_crop_portfolio_pivots_on_monopoly(self) -> None:
+        """Dynamic crop portfolio avoids planting crops that the opponent is heavily growing."""
+        engine = LeaderV10Engine()
+        # Opponent has 15 MELON plants.
+        # This will trigger a huge penalty on MELON ROI, causing us to select STRAWBERRY or TOMATO.
+        opp_melon_tile = {
+            "kind": "PLANT",
+            "crop": "MELON",
+            "planted_day": 5,
+            "watered_today": True,
+            "consecutive_unwatered": 0,
+            "yield_units": 0,
+        }
+        opponent_tiles = [[opp_melon_tile] * 10 for _ in range(2)] + [[None] * 10 for _ in range(8)]
+        # We need a market that has MELON, STRAWBERRY, etc.
+        obs = _observation(
+            day=5,
+            hour=1,
+            money=5000,
+            opponent_tiles=opponent_tiles,
+            shops=["melon_shop", "strawberry_shop", "tomato_shop"]
+        )
+        state = NormalizedState.from_observation(obs)
+        portfolio = engine._dynamic_crop_portfolio(state, horizon=25, empty_slots=5)
+        crops = [crop for crop, qty in portfolio]
+        # MELON should be suppressed due to the 15 * 5% = 75% ROI penalty
+        assert "MELON" not in crops
+        assert len(crops) > 0
