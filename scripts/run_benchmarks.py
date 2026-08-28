@@ -3,15 +3,38 @@ import json
 import os
 import sys
 import time
+from contextlib import contextmanager
 
-# Silence stdout/stderr during Kaggle/OpenSpiel imports and registration
-devnull = open(os.devnull, "w")
-old_stdout = sys.stdout
-old_stderr = sys.stderr
-sys.stdout = devnull
-sys.stderr = devnull
 
-try:
+@contextmanager
+def _suppress_output():
+    """Silence both Python streams and OS-level file descriptors (C/C++ output)."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    fd_devnull = os.open(os.devnull, os.O_WRONLY)
+    old_stdout_fd = os.dup(1)
+    old_stderr_fd = os.dup(2)
+    os.dup2(fd_devnull, 1)
+    os.dup2(fd_devnull, 2)
+    old_stdout = sys.stdout
+    old_stderr = sys.stderr
+    sys.stdout = open(os.devnull, "w")
+    sys.stderr = open(os.devnull, "w")
+    try:
+        yield
+    finally:
+        sys.stdout.close()
+        sys.stderr.close()
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
+        os.dup2(old_stdout_fd, 1)
+        os.dup2(old_stderr_fd, 2)
+        os.close(old_stdout_fd)
+        os.close(old_stderr_fd)
+        os.close(fd_devnull)
+
+
+with _suppress_output():
     from agent.engines.leader_v6 import LeaderV6Engine
     from agent.engines.leader_v7 import LeaderV7Engine
     from agent.engines.leader_v8 import LeaderV8Engine
@@ -23,10 +46,6 @@ try:
     from agent.harness.models import RunConfig
 
     register_builtins()
-finally:
-    sys.stdout = old_stdout
-    sys.stderr = old_stderr
-    devnull.close()
 
 
 def run_evaluation(agent_name, opp_name, agent_class, opp_class, num_matches=30):
@@ -51,11 +70,7 @@ def run_evaluation(agent_name, opp_name, agent_class, opp_class, num_matches=30)
         adapter = KaggleEnvironmentAdapter(opponent=opp_eng.act)
         runner = EpisodeRunner(RunConfig(seed=seed, max_turns=720))
 
-        _devnull = open(os.devnull, "w")
-        _old_stdout, _old_stderr = sys.stdout, sys.stderr
-        sys.stdout = _devnull
-        sys.stderr = _devnull
-        try:
+        with _suppress_output():
             rec = runner.run(
                 adapter,
                 agent_eng.act,
@@ -63,10 +78,6 @@ def run_evaluation(agent_name, opp_name, agent_class, opp_class, num_matches=30)
                 agent_name=agent_name,
                 opponent_name=opp_name,
             )
-        finally:
-            sys.stdout = _old_stdout
-            sys.stderr = _old_stderr
-            _devnull.close()
 
         rewards = (
             rec.raw_result["rewards"]
