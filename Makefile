@@ -42,12 +42,10 @@ kaggle-build:
 
 .PHONY: kaggle-deploy-code
 kaggle-deploy-code: kaggle-build
-	rm -rf kaggle_dataset/dist kaggle_dataset/scripts kaggle_dataset/agent
-	mkdir -p kaggle_dataset/dist kaggle_dataset/scripts
+	rm -rf kaggle_dataset/dist kaggle_dataset/scripts kaggle_dataset/agent kaggle_dataset/*.whl kaggle_dataset/*.py
 	cp dist/*.whl kaggle_dataset/
-	cp scripts/kaggle_runner.py kaggle_dataset/scripts/
-	cp scripts/optimize_v10.py kaggle_dataset/scripts/
-	cp -r agent kaggle_dataset/
+	cp scripts/kaggle_runner.py kaggle_dataset/
+	cp scripts/optimize_v10.py kaggle_dataset/
 	# Try to create dataset first, if exists, update it as a new version
 	kaggle datasets version -p kaggle_dataset/ -m "Update code wheel and runners" || kaggle datasets create -p kaggle_dataset/ -u
 
