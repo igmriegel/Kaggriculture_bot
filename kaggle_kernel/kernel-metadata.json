@@ -1,5 +1,5 @@
 {
-  "id": "igmriegel/kaggriculture-optimization",
+  "id": "igormriegel/kaggriculture-optimization",
   "title": "kaggriculture-optimization",
   "code_file": "run.ipynb",
   "language": "python",
@@ -9,7 +9,7 @@
   "enable_tpu": "false",
   "enable_internet": "true",
   "dataset_sources": [
-    "igmriegel/kaggriculture-bot-code"
+    "igormriegel/kaggriculture-bot-code"
   ],
   "competition_sources": [
     "kaggriculture"

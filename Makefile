@@ -57,9 +57,9 @@ kaggle-run:
 
 .PHONY: kaggle-status
 kaggle-status:
-	kaggle kernels status igmriegel/kaggriculture-optimization
+	kaggle kernels status igormriegel/kaggriculture-optimization
 
 .PHONY: kaggle-retrieve
 kaggle-retrieve:
 	mkdir -p reports/kaggle
-	kaggle kernels output igmriegel/kaggriculture-optimization -p reports/kaggle/
+	kaggle kernels output igormriegel/kaggriculture-optimization -p reports/kaggle/
