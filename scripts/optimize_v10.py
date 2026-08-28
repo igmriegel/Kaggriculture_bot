@@ -1,0 +1,138 @@
+import json
+import os
+import sys
+from concurrent.futures import ProcessPoolExecutor
+
+import optuna
+
+
+# Suppress stderr/stdout warnings during imports to keep terminal clean
+def _suppress_output():
+    sys.stdout.flush()
+    sys.stderr.flush()
+    fd_devnull = os.open(os.devnull, os.O_WRONLY)
+    old_stdout_fd = os.dup(1)
+    old_stderr_fd = os.dup(2)
+    os.dup2(fd_devnull, 1)
+    os.dup2(fd_devnull, 2)
+    try:
+        yield
+    finally:
+        os.dup2(old_stdout_fd, 1)
+        os.dup2(old_stderr_fd, 2)
+        os.close(old_stdout_fd)
+        os.close(old_stderr_fd)
+        os.close(fd_devnull)
+
+
+# Run imports inside suppressed context to avoid flooding the stdout
+with open(os.devnull, "w") as devnull:
+    old_stdout = sys.stdout
+    old_stderr = sys.stderr
+    sys.stdout = devnull
+    sys.stderr = devnull
+    try:
+        from agent.engines.leader_v9 import LeaderV9Engine
+        from agent.engines.leader_v10 import LeaderV10Engine, V10Config
+        from agent.harness.adapters.kaggle import KaggleEnvironmentAdapter
+        from agent.harness.builtins import register_builtins
+        from agent.harness.execution import EpisodeRunner
+        from agent.harness.models import RunConfig
+
+        register_builtins()
+    finally:
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
+
+
+def run_single_game(seed: int, config_dict: dict) -> float:
+    """Run a single game in a subprocess to avoid GIL lock and state pollution."""
+    try:
+        config = V10Config(**config_dict)
+        agent_eng = LeaderV10Engine(config=config)
+        opp_eng = LeaderV9Engine()
+
+        adapter = KaggleEnvironmentAdapter(opponent=opp_eng.act)
+        runner = EpisodeRunner(RunConfig(seed=seed, max_turns=720))
+
+        # Run without printing output
+        rec = runner.run(
+            adapter,
+            agent_eng.act,
+            episode_id=f"opt-seed-{seed}",
+            agent_name="v10",
+            opponent_name="v9",
+        )
+
+        rewards = (
+            rec.raw_result["rewards"]
+            if isinstance(rec.raw_result, dict) and "rewards" in rec.raw_result
+            else [rec.metrics.get("final_money", 0), 0]
+        )
+        score_agent = rewards[0]
+        score_opp = rewards[1]
+        return float(score_agent - score_opp)
+    except Exception:
+        # If anything fails, return a penalty margin
+        return -5000.0
+
+
+def objective(trial: optuna.Trial) -> float:
+    # Suggest parameters for V10Config
+    params = {
+        "closing_day": trial.suggest_int("closing_day", 23, 28),
+        "closing_maintenance_threshold": trial.suggest_int("closing_maintenance_threshold", 8, 16),
+        "closing_workers_max": trial.suggest_int("closing_workers_max", 3, 5),
+        "closing_workers_min": trial.suggest_int("closing_workers_min", 1, 3),
+        "min_cash_buffer_livestock": trial.suggest_int("min_cash_buffer_livestock", 200, 800),
+        "double_animal_buy_threshold": trial.suggest_int("double_animal_buy_threshold", 1200, 2200),
+        "melon_roi_multiplier": trial.suggest_float("melon_roi_multiplier", 1.0, 2.0),
+        "strawberry_roi_multiplier": trial.suggest_float("strawberry_roi_multiplier", 1.0, 2.0),
+        "speculation_hold_threshold": trial.suggest_float("speculation_hold_threshold", 0.70, 0.95),
+        "speculation_min_liquidity": trial.suggest_int("speculation_min_liquidity", 1000, 2500),
+        "opponent_crop_penalty": trial.suggest_float("opponent_crop_penalty", 0.01, 0.15),
+    }
+
+    seeds = [1, 2, 3, 4, 5]
+    margins = []
+
+    # Run seeds in parallel processes
+    with ProcessPoolExecutor(max_workers=len(seeds)) as executor:
+        futures = [executor.submit(run_single_game, seed, params) for seed in seeds]
+        for f in futures:
+            margins.append(f.result())
+
+    # Return the average margin (Objective: MAXIMIZE margin)
+    avg_margin = sum(margins) / len(margins)
+    return avg_margin
+
+
+def main():
+    print("=== STARTING LEADER_V10 EVOLUTIONARY OPTIMIZATION (OPTUNA) ===")
+    print("Optimization target: Maximize Margin against LeaderV9 over 5 different seeds.")
+
+    # We use CMA-ES sampler for genetic/evolutionary optimization
+    study = optuna.create_study(
+        direction="maximize", sampler=optuna.samplers.CmaEsSampler(warn_independent_sampling=False)
+    )
+
+    try:
+        study.optimize(objective, n_trials=50, show_progress_bar=True)
+    except KeyboardInterrupt:
+        print("\nOptimization interrupted by user. Saving current best parameters...")
+
+    print("\n=== OPTIMIZATION COMPLETE ===")
+    print(f"Best Trial Value (Average Margin vs V9): ${study.best_value:,.2f}")
+    print("Best Parameters Found:")
+    for k, v in study.best_params.items():
+        print(f"  {k}: {v}")
+
+    # Save to JSON
+    out_path = "agent/engines/leader_v10_best.json"
+    with open(out_path, "w") as f:
+        json.dump(study.best_params, f, indent=4)
+    print(f"\nBest parameters saved to: {out_path}")
+
+
+if __name__ == "__main__":
+    main()

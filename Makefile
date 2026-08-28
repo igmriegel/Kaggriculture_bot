@@ -31,3 +31,7 @@ package:
 .PHONY: submit
 submit: package
 	kaggle competitions submit -c $(COMPETITION) -f dist/submission.tar.gz -m "$(or $(MSG),feat: automated submit)"
+
+.PHONY: optimize-v10
+optimize-v10:
+	PYTHONPATH=. $(PYTHON) scripts/optimize_v10.py

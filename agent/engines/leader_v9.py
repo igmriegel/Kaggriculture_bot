@@ -141,7 +141,6 @@ class LeaderV9Engine(LeaderV8Engine):
         return base_roi
 
     def _tasks(self, state: NormalizedState, goals: tuple[ProductionGoal, ...]) -> list[Task]:
-
         tasks = super()._tasks(state, goals)
 
         filtered_tasks: list[Task] = []
