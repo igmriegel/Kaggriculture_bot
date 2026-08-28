@@ -1,4 +1,4 @@
-"""Tests for LeaderV8Engine: pure dynamic market-simulation, marginal ROI, and shop-aware livestock."""
+"""Tests for LeaderV8Engine: market-simulation, marginal ROI, and shop-aware livestock."""
 
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ class TestLeaderV8PureDynamicOptimizer:
         assert total_allocated > 0
 
     def test_melon_allocation_naturally_throttled_by_marginal_decay(self) -> None:
-        """When market melon inventory is flooded, marginal ROI forces optimizer to choose non-melon crops."""
+        """When market melon inventory is flooded, marginal ROI forces non-melon selection."""
         engine = LeaderV8Engine()
         market_inv = {"MELON": 10_150}
         obs = _observation(day=2, hour=1, money=5000, market_inventory=market_inv)
@@ -108,7 +108,7 @@ class TestLeaderV8PureDynamicOptimizer:
         assert "MELON" not in crops
 
     def test_strawberry_favored_when_town_shops_demand_strawberry(self) -> None:
-        """When town shops drain strawberry and livestock generates fertilizer, marginal simulation shifts allocation to Strawberry."""
+        """When town shops drain strawberry, marginal simulation shifts allocation."""
         engine = LeaderV8Engine()
         shops = ["BRUNCH_SPOT", "ICE_CREAM_SHOP", "SMOOTHIE_SHOP", "FARMERS_MARKET"]
         pasture_tile = {"kind": "PASTURE", "animal": "COW", "fed_today": True}

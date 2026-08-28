@@ -151,6 +151,14 @@ class LeaderV9Engine(LeaderV8Engine):
         if state.day == 0:
             return super()._build_market_orders(state, goals, tasks)
 
+        # Oportunidade de mercado nos dias 1-2:
+        # Se Melão estiver muito barato (< $85) ou Morango (< $115),
+        # postergamos o gado para a próxima rodada para focar na lavoura rápida.
+        melon_price = state.prices.get("MELON", 250)
+        strawberry_price = state.prices.get("STRAWBERRY", 120)
+        has_deal = (melon_price < 85) or (strawberry_price < 115)
+        is_early_game = state.day in {1, 2}
+
         cattle_orders: list[list[Any]] = []
         spending = max(0, state.money - 20)
 
@@ -158,7 +166,11 @@ class LeaderV9Engine(LeaderV8Engine):
         animal_goal = next((g.quantity for g in goals if g.name == "operational_animals"), 0)
         current_animals = self._animal_count(state) + self._pending_animals(state)
 
-        if current_animals < animal_goal and self._animal_chain_ready(state):
+        if (
+            current_animals < animal_goal
+            and self._animal_chain_ready(state)
+            and not (is_early_game and has_deal)
+        ):
             yarn_shops = sum(1 for shop in state.shops if "WOOL" in SHOPS.get(shop, ()))
             dairy_shops = sum(1 for shop in state.shops if "MILK" in SHOPS.get(shop, ()))
 

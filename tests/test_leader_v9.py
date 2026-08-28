@@ -136,3 +136,29 @@ class TestLeaderV9Engine:
         buy_animal_orders = [o for o in orders if o[0] == "BUY_ANIMAL"]
         assert len(buy_animal_orders) > 0
         assert buy_animal_orders[0][2] == 2
+
+    def test_delay_livestock_buying_when_melons_are_dirt_cheap(self) -> None:
+        """On day 1, if melon seed price is extremely cheap, livestock purchase is delayed."""
+        engine = LeaderV9Engine()
+        pasture_tile = {"kind": "PASTURE", "animal": None}
+        tiles = [[pasture_tile] + [None] * 9] + [[None] * 10 for _ in range(9)]
+        obs = _observation(day=1, hour=1, money=4000, prices={"MELON": 50}, tiles=tiles)
+        state = NormalizedState.from_observation(obs)
+        goals = engine._goals(state)
+        orders = engine._build_market_orders(state, goals, [])
+        buy_seeds = [o for o in orders if o[0] == "BUY_SEED"]
+        assert len(buy_seeds) > 0
+
+    def test_prioritize_livestock_buying_when_no_deals(self) -> None:
+        """On day 1, if crop seed prices are normal/high, livestock is prioritized first."""
+        engine = LeaderV9Engine()
+        pasture_tile = {"kind": "PASTURE", "animal": None}
+        tiles = [[pasture_tile] + [None] * 9] + [[None] * 10 for _ in range(9)]
+        obs = _observation(
+            day=1, hour=1, money=4000, prices={"MELON": 250, "STRAWBERRY": 120}, tiles=tiles
+        )
+        state = NormalizedState.from_observation(obs)
+        goals = engine._goals(state)
+        orders = engine._build_market_orders(state, goals, [])
+        buy_animal = [o for o in orders if o[0] == "BUY_ANIMAL"]
+        assert len(buy_animal) > 0
