@@ -77,8 +77,8 @@ class KaggricultureParamGymEnv(gym.Env):
         self.adapter = KaggleEnvironmentAdapter(opponent=opp_eng.act)
 
         # We start the Kaggle Environment
-        raw_obs = self.adapter.reset(seed=self.seed_val)
-        self.state = NormalizedState.from_observation(raw_obs)
+        self.last_raw_obs = self.adapter.reset(seed=self.seed_val)
+        self.state = NormalizedState.from_observation(self.last_raw_obs)
         self.current_day = 0
         self.last_money = self.state.money
 
@@ -109,15 +109,12 @@ class KaggricultureParamGymEnv(gym.Env):
             if self.adapter.finished():
                 break
             # Run one micro turn
-            raw_obs = self.adapter._observation(self.adapter._environment, self.adapter._player)
-            # The Kaggle adapter updates internal state when we step it
-            action_raw = agent_eng.act(raw_obs)
+            action_raw = agent_eng.act(self.last_raw_obs)
             # Send step
-            self.adapter.step(action_raw)
+            self.last_raw_obs = self.adapter.step(action_raw)
 
         # Get new state
-        raw_obs = self.adapter._observation(self.adapter._environment, self.adapter._player)
-        self.state = NormalizedState.from_observation(raw_obs)
+        self.state = NormalizedState.from_observation(self.last_raw_obs)
         self.current_day = self.state.day
 
         # Reward calculation: cash margin gain
