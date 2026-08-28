@@ -7,10 +7,20 @@ from agent.engines.leader_v6 import LeaderV6Engine
 from agent.engines.leader_v7 import LeaderV7Engine
 from agent.engines.leader_v8 import LeaderV8Engine
 from agent.engines.leader_v9 import LeaderV9Engine
-from agent.harness.adapters.kaggle import KaggleEnvironmentAdapter
-from agent.harness.builtins import register_builtins
-from agent.harness.execution import EpisodeRunner
-from agent.harness.models import RunConfig
+
+# Silence stderr during Kaggle/OpenSpiel imports to clean up terminal output
+devnull = open(os.devnull, "w")
+old_stderr = sys.stderr
+sys.stderr = devnull
+
+try:
+    from agent.harness.adapters.kaggle import KaggleEnvironmentAdapter
+    from agent.harness.builtins import register_builtins
+    from agent.harness.execution import EpisodeRunner
+    from agent.harness.models import RunConfig
+finally:
+    sys.stderr = old_stderr
+    devnull.close()
 
 register_builtins()
 
