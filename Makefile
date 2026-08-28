@@ -18,3 +18,12 @@ reports-download:
 .PHONY: benchmarks
 benchmarks:
 	PYTHONPATH=. $(PYTHON) scripts/run_benchmarks.py
+
+.PHONY: package
+package:
+	$(PYTHON) -m agent.harness package-submission --output dist/submission.tar.gz
+	$(PYTHON) -m agent.harness validate-submission --path dist/submission.tar.gz
+
+.PHONY: submit
+submit: package
+	kaggle competitions submit -c $(COMPETITION) -f dist/submission.tar.gz -m "$(or $(MSG),feat: automated submit)"
