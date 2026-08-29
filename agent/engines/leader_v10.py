@@ -17,8 +17,13 @@ from agent.engines.leader_v2 import ProductionGoal, Task
 from agent.engines.leader_v6 import (
     _CROP_MATURITY,
     _PRODUCTS,
+    _ANIMAL_COST,
+    _CROP_BASE_PRICES,
+    _V6_SEED_COST,
 )
+from agent.engines.leader_v7 import LeaderV7Engine
 from agent.engines.leader_v8 import LeaderV8Config, LeaderV8Engine
+from agent.domain.economics import marginal_sale_values
 
 _V9_ANIMAL_COST = {"COW": 400, "SHEEP": 500, "GOOSE": 300}
 
@@ -53,6 +58,30 @@ class V10Config(LeaderV8Config):
     speculation_min_liquidity: int = 1640
     # Sprint 3: Anti-Monopoly
     opponent_crop_penalty: float = 0.027970972369217757
+
+    # --- New 14 parameters ---
+    # 1. Hires & Workload
+    feed_buffer_threshold: int = 4
+    feed_buy_min_money: int = 150
+    feed_buffer_days: int = 2
+    hire_workload_threshold: int = 12
+    hire_min_animals: int = 3
+    
+    # 2. Land Expansion
+    land_unlock_saturation_ratio: float = 0.75
+    seed_buffer_per_tile: int = 30
+    
+    # 3. Livestock Ratios
+    animal_cow_sheep_ratio: float = 3.0
+    animal_sheep_cow_ratio: float = 2.0
+    
+    # 4. Shed & Sales Prices
+    wheat_feed_buffer_per_animal: int = 2
+    max_fertilizer_to_keep: int = 3
+    front_run_opponent_harvest_threshold: int = 6
+    clearance_day_threshold: int = 28
+    continuous_sale_min_amount: int = 2
+    marginal_sale_price_ratio_floor: float = 0.45
 
 
 class LeaderV10Engine(LeaderV8Engine):
@@ -255,20 +284,88 @@ class LeaderV10Engine(LeaderV8Engine):
             return orders[: self.v10_config.max_orders]
 
         if state.day == 0:
-            return super()._build_market_orders(state, goals, tasks)
+            if state.hour == 1 and not self._animal_count(state) and not any(state.shed.values()):
+                has_strawberry_shop = any("STRAWBERRY" in SHOPS.get(s, ()) for s in state.shops)
+                strawberry_seeds = 3 if has_strawberry_shop else 2
+                melon_seeds = 2 if has_strawberry_shop else 3
+                return [
+                    ["HIRE"],
+                    ["BUY_ANIMAL", "COW", 2],
+                    ["BUY_ANIMAL", "SHEEP", 1],
+                    ["BUY_SEED", "WHEAT", 4],
+                    ["BUY_SEED", "MELON", melon_seeds],
+                    ["BUY_SEED", "STRAWBERRY", strawberry_seeds],
+                ]
+            return []
 
-        # Oportunidade de mercado nos dias 1-2:
-        # Se Melão estiver muito barato (< $85) ou Morango (< $115),
-        # postergamos o gado para a próxima rodada para focar na lavoura rápida.
+        # Get base orders from LeaderV7Engine
+        orders = LeaderV7Engine._build_market_orders(self, state, goals, tasks)
+        spending = max(0, state.money - 20)
+
+        # 1. Pure Workload & Liquidity Driven Worker Hiring
+        total_workers = 1 + len(state.hand_positions)
+        no_hire_yet = not any(o[0] == "HIRE" for o in orders)
+        if total_workers < 2 and len(orders) < self.v10_config.max_orders and no_hire_yet:
+            unwatered_crops = sum(
+                1 for t in state.tiles if t.kind == "PLANT" and not t.watered_today
+            )
+            unfed_animals = sum(
+                1 for t in state.tiles if t.kind == "PASTURE" and t.animal and not t.fed_today
+            )
+            harvestable = sum(
+                1 for t in state.tiles if t.kind == "PLANT" and t.yield_units and t.yield_units > 0
+            )
+            pending_actions = unwatered_crops + unfed_animals + harvestable
+
+            # Market Feed Purchasing (dynamic feed buffer)
+            wheat_in_shed = state.shed.get("WHEAT", 0)
+            animal_cnt = self._animal_count(state)
+            if animal_cnt > 0 and wheat_in_shed < self.v10_config.feed_buffer_threshold and state.money >= self.v10_config.feed_buy_min_money:
+                need_wheat = self.v10_config.feed_buffer_threshold - wheat_in_shed
+                orders.append(["BUY_SEED", "WHEAT", need_wheat])
+
+            # Dynamic liquidity buffer: hire cost ($500) + X days animal feed + seed capital
+            animal_count = self._animal_count(state)
+            wheat_price = max(1, int(state.prices.get("WHEAT", 25)))
+            required_feed_buffer = animal_count * self.v10_config.feed_buffer_days * wheat_price
+            dynamic_hire_threshold = (
+                500 + required_feed_buffer + self.v10_config.min_liquidity_buffer
+            )
+
+            # Only hire if workload exceeds single-worker capacity and we have full liquidity
+            if pending_actions >= self.v10_config.hire_workload_threshold or (
+                animal_count >= self.v10_config.hire_min_animals and state.money >= dynamic_hire_threshold
+            ):
+                if state.money >= dynamic_hire_threshold:
+                    orders.append(["HIRE"])
+
+        # 2. Pure Dynamic Land Expansion
+        unlocked_count = len(state.unlocked_quadrants)
+        no_unlock_yet = not any(o[0] == "BUY_LAND" for o in orders)
+        if unlocked_count < 4 and len(orders) < self.v10_config.max_orders and no_unlock_yet:
+            occupied_tiles = sum(1 for t in state.tiles if t.kind in ("PLANT", "PASTURE"))
+            total_unlocked_capacity = unlocked_count * 9
+            saturation_ratio = occupied_tiles / max(1, total_unlocked_capacity)
+
+            # Dynamic liquidity buffer for land purchase: unlock cost ($250) + seed buffer + feed buffer
+            animal_count = self._animal_count(state)
+            wheat_price = max(1, int(state.prices.get("WHEAT", 25)))
+            required_seed_buffer = occupied_tiles * self.v10_config.seed_buffer_per_tile + animal_count * self.v10_config.feed_buffer_days * wheat_price
+            dynamic_unlock_threshold = (
+                250 + required_seed_buffer + self.v10_config.min_liquidity_buffer
+            )
+
+            # Unlock when land saturation >= threshold AND we have liquidity to seed the new land
+            if saturation_ratio >= self.v10_config.land_unlock_saturation_ratio and state.money >= dynamic_unlock_threshold:
+                orders.append(["BUY_LAND"])
+
+        # 3. Shop-Aware Livestock Selection
         melon_price = state.prices.get("MELON", 250)
         strawberry_price = state.prices.get("STRAWBERRY", 120)
-        has_deal = (melon_price < 85) or (strawberry_price < 115)
+        has_deal = (melon_price < self.v10_config.melon_deal_price) or (strawberry_price < self.v10_config.strawberry_deal_price)
         is_early_game = state.day in {1, 2}
 
         cattle_orders: list[list[Any]] = []
-        spending = max(0, state.money - 20)
-
-        # 1. Livestock Buying Prioritized (before base seeds consume cash)
         animal_goal = next((g.quantity for g in goals if g.name == "operational_animals"), 0)
         current_animals = self._animal_count(state) + self._pending_animals(state)
 
@@ -284,9 +381,9 @@ class LeaderV10Engine(LeaderV8Engine):
             current_sheep = sum(1 for t in state.tiles if t.animal == "SHEEP")
 
             if yarn_shops == 0:
-                next_animal = "COW" if current_cows <= current_sheep * 3 else "SHEEP"
+                next_animal = "COW" if current_cows <= current_sheep * self.v10_config.animal_cow_sheep_ratio else "SHEEP"
             elif dairy_shops == 0:
-                next_animal = "SHEEP" if current_sheep <= current_cows * 2 else "COW"
+                next_animal = "SHEEP" if current_sheep <= current_cows * self.v10_config.animal_sheep_cow_ratio else "COW"
             else:
                 next_animal = "COW" if current_cows <= current_sheep else "SHEEP"
 
@@ -303,10 +400,10 @@ class LeaderV10Engine(LeaderV8Engine):
                 cattle_orders.append(["BUY_ANIMAL", next_animal, 1])
                 spending -= cost
 
-        base_orders = super()._build_market_orders(state, goals, tasks)
-        filtered_base_orders = [o for o in base_orders if o[0] != "BUY_ANIMAL"]
-
+        # Filter out BUY_ANIMAL from base_orders and combine
+        filtered_base_orders = [o for o in orders if o[0] != "BUY_ANIMAL"]
         final_orders = cattle_orders + filtered_base_orders
+
         return final_orders[: self.v10_config.max_orders]
 
     def _sales(
@@ -314,6 +411,17 @@ class LeaderV10Engine(LeaderV8Engine):
     ) -> list[list[Any]]:
         orders: list[list[Any]] = []
         is_closing = self._closing(state)
+        capacity_pressure = sum(state.shed.values()) >= (
+            state.shed_capacity - self.v10_config.shed_safety_buffer
+        )
+        low_liquidity = state.money < self.v10_config.liquidity_cash_floor
+
+        # Detect Imminent Opponent Harvests for Front-Running
+        opp_imminent_harvests = self._detect_opp_imminent_harvests(state)
+
+        regrowable_count = sum(
+            1 for t in state.tiles if t.kind == "PLANT" and t.crop in ("STRAWBERRY", "TOMATO")
+        )
 
         # Calculate feed buffer
         total_animals = (
@@ -321,7 +429,7 @@ class LeaderV10Engine(LeaderV8Engine):
             + self._pending_animals(state)
             + sum(1 for inv in state.unit_inventories for k in _V9_ANIMAL_COST if inv.get(k, 0))
         )
-        needed_wheat = total_animals * 2
+        needed_wheat = total_animals * self.v10_config.wheat_feed_buffer_per_animal
 
         for item, amount in sorted(state.shed.items()):
             if amount <= 0 or item not in _PRODUCTS:
@@ -330,30 +438,56 @@ class LeaderV10Engine(LeaderV8Engine):
             if item == "WHEAT" and not is_closing:
                 sellable = max(0, amount - needed_wheat)
             elif item == "FERTILIZER" and not is_closing:
-                regrowable_count = sum(
-                    1
-                    for t in state.tiles
-                    if t.kind == "PLANT" and t.crop in ("STRAWBERRY", "TOMATO")
-                )
-                if regrowable_count == 0 or state.money < 150:
+                if low_liquidity or regrowable_count == 0:
                     sellable = amount
                 else:
-                    fert_to_keep = min(3, regrowable_count, amount)
+                    fert_to_keep = min(self.v10_config.max_fertilizer_to_keep, regrowable_count, amount)
                     sellable = max(0, amount - fert_to_keep)
             else:
                 sellable = amount
 
-            # Sprint 2: Market Speculation
-            if sellable > 0 and projected and item in projected and item in state.prices:
+            if sellable <= 0:
+                continue
+
+            # Front-Running Vector: If opponent will harvest this item within 24h, sell NOW
+            if opp_imminent_harvests.get(item, 0) >= self.v10_config.front_run_opponent_harvest_threshold and not is_closing:
+                orders.append(["SELL", item, sellable])
+                continue
+
+            # Closing, capacity pressure, low liquidity, or Day >= threshold final clearance
+            if is_closing or capacity_pressure or low_liquidity or state.day >= self.v10_config.clearance_day_threshold:
+                orders.append(["SELL", item, sellable])
+                continue
+
+            # Continuous high-margin sales
+            if item in {"MILK", "WOOL", "STRAWBERRY", "TOMATO"} and amount >= self.v10_config.continuous_sale_min_amount:
+                orders.append(["SELL", item, sellable])
+                continue
+
+            # Marginal quote threshold check
+            values = marginal_sale_values(
+                item,
+                state.market_inventory.get(item, 10_000),
+                sellable,
+                opponent_buffer=self.v10_config.opponent_market_buffer,
+            )
+            base = state.prices.get(item, _CROP_BASE_PRICES.get(item, 25))
+            units_to_sell = sum(1 for val in values if val >= base * self.v10_config.marginal_sale_price_ratio_floor)
+            if units_to_sell > 0:
+                orders.append(["SELL", item, units_to_sell])
+
+        # Sprint 2: Market Speculation override
+        final_orders = []
+        for o in orders:
+            op, item, qty = o[0], o[1], o[2]
+            if op == "SELL" and projected and item in projected and item in state.prices and not is_closing:
                 expected_price = projected[item]
                 current_price = state.prices[item]
                 if (
                     current_price < expected_price * self.v10_config.speculation_hold_threshold
                     and state.money > self.v10_config.speculation_min_liquidity
                 ):
-                    sellable = 0
+                    continue
+            final_orders.append(o)
 
-            if sellable > 0:
-                orders.append(["SELL", item, sellable])
-
-        return orders
+        return final_orders

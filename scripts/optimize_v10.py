@@ -86,13 +86,30 @@ def objective(trial: optuna.Trial) -> float:
         "speculation_hold_threshold": trial.suggest_float("speculation_hold_threshold", 0.70, 0.95),
         "speculation_min_liquidity": trial.suggest_int("speculation_min_liquidity", 1000, 2500),
         "opponent_crop_penalty": trial.suggest_float("opponent_crop_penalty", 0.01, 0.15),
+        
+        # New 14 parameters
+        "feed_buffer_threshold": trial.suggest_int("feed_buffer_threshold", 2, 6),
+        "feed_buy_min_money": trial.suggest_int("feed_buy_min_money", 50, 300),
+        "feed_buffer_days": trial.suggest_int("feed_buffer_days", 1, 5),
+        "hire_workload_threshold": trial.suggest_int("hire_workload_threshold", 6, 18),
+        "hire_min_animals": trial.suggest_int("hire_min_animals", 1, 5),
+        "land_unlock_saturation_ratio": trial.suggest_float("land_unlock_saturation_ratio", 0.50, 0.90),
+        "seed_buffer_per_tile": trial.suggest_int("seed_buffer_per_tile", 10, 60),
+        "animal_cow_sheep_ratio": trial.suggest_float("animal_cow_sheep_ratio", 1.5, 5.0),
+        "animal_sheep_cow_ratio": trial.suggest_float("animal_sheep_cow_ratio", 1.0, 4.0),
+        "wheat_feed_buffer_per_animal": trial.suggest_int("wheat_feed_buffer_per_animal", 1, 4),
+        "max_fertilizer_to_keep": trial.suggest_int("max_fertilizer_to_keep", 1, 6),
+        "front_run_opponent_harvest_threshold": trial.suggest_int("front_run_opponent_harvest_threshold", 2, 10),
+        "clearance_day_threshold": trial.suggest_int("clearance_day_threshold", 25, 29),
+        "continuous_sale_min_amount": trial.suggest_int("continuous_sale_min_amount", 1, 5),
+        "marginal_sale_price_ratio_floor": trial.suggest_float("marginal_sale_price_ratio_floor", 0.20, 0.60),
     }
 
-    seeds = [1, 2, 3, 4, 5]
+    seeds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     margins = []
 
     # Run seeds in parallel processes
-    with ProcessPoolExecutor(max_workers=len(seeds)) as executor:
+    with ProcessPoolExecutor(max_workers=min(len(seeds), os.cpu_count() or 4)) as executor:
         futures = [executor.submit(run_single_game, seed, params) for seed in seeds]
         for f in futures:
             margins.append(f.result())
@@ -104,7 +121,7 @@ def objective(trial: optuna.Trial) -> float:
 
 def main():
     print("=== STARTING LEADER_V10 EVOLUTIONARY OPTIMIZATION (OPTUNA) ===")
-    print("Optimization target: Maximize Margin against LeaderV9 over 5 different seeds.")
+    print("Optimization target: Maximize Margin against LeaderV9 over 15 different seeds.")
 
     # We use CMA-ES sampler for genetic/evolutionary optimization
     study = optuna.create_study(
@@ -112,7 +129,7 @@ def main():
     )
 
     try:
-        study.optimize(objective, n_trials=50, show_progress_bar=True)
+        study.optimize(objective, n_trials=300, show_progress_bar=True)
     except KeyboardInterrupt:
         print("\nOptimization interrupted by user. Saving current best parameters...")
 

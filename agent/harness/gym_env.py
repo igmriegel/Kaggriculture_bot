@@ -24,8 +24,8 @@ class KaggricultureParamGymEnv(gym.Env):
         super().__init__()
         self.opponent_class = opponent_class
 
-        # Action space: 11 parameters mapped to [-1, 1]
-        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(11,), dtype=np.float32)
+        # Action space: 26 parameters mapped to [-1, 1]
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(26,), dtype=np.float32)
 
         # Observation space: 15 features
         # [day, money/50k0, unlocked_quads/4, workers/5, cows/10, sheep/10,
@@ -99,6 +99,41 @@ class KaggricultureParamGymEnv(gym.Env):
             "speculation_hold_threshold": float(0.70 + (action[8] + 1) * 0.125),  # 0.70 to 0.95
             "speculation_min_liquidity": int(1000 + (action[9] + 1) * 750),  # 1000 to 2500
             "opponent_crop_penalty": float(0.01 + (action[10] + 1) * 0.07),  # 0.01 to 0.15
+            
+            # New 14 parameters mapping:
+            "feed_buffer_threshold": int(np.round(2 + (action[11] + 1) * 2)),  # 2 to 6
+            "feed_buy_min_money": int(np.round(50 + (action[12] + 1) * 125)),  # 50 to 300
+            "feed_buffer_days": int(np.round(1 + (action[13] + 1) * 2)),  # 1 to 5
+            "hire_workload_threshold": int(np.round(6 + (action[14] + 1) * 6)),  # 6 to 18
+            "hire_min_animals": int(np.round(1 + (action[15] + 1) * 2)),  # 1 to 5
+            "land_unlock_saturation_ratio": float(0.50 + (action[16] + 1) * 0.20),  # 0.50 to 0.90
+            "seed_buffer_per_tile": int(np.round(10 + (action[17] + 1) * 25)),  # 10 to 60
+            "animal_cow_sheep_ratio": float(1.5 + (action[18] + 1) * 1.75),  # 1.5 to 5.0
+            "animal_sheep_cow_ratio": float(1.0 + (action[19] + 1) * 1.5),  # 1.0 to 4.0
+            "wheat_feed_buffer_per_animal": int(np.round(1 + (action[20] + 1) * 1.5)),  # 1 to 4
+            "max_fertilizer_to_keep": int(np.round(1 + (action[21] + 1) * 2.5)),  # 1 to 6
+            "front_run_opponent_harvest_threshold": int(np.round(2 + (action[22] + 1) * 4)),  # 2 to 10
+            "clearance_day_threshold": int(np.round(25 + (action[23] + 1) * 2)),  # 25 to 29
+            "continuous_sale_min_amount": int(np.round(1 + (action[24] + 1) * 2)),  # 1 to 5
+            # We map 25 parameters, marginal_sale_price_ratio_floor is mapped from action[24] or we can map it too.
+            # Let's map continuous_sale_min_amount as action[23] and clearance_day_threshold as action[22]...
+            # Wait, there are 14 parameters, so indexes from 11 to 24 are 14 slots (11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24).
+            # Let's count them:
+            # 11: feed_buffer_threshold
+            # 12: feed_buy_min_money
+            # 13: feed_buffer_days
+            # 14: hire_workload_threshold
+            # 15: hire_min_animals
+            # 16: land_unlock_saturation_ratio
+            # 17: seed_buffer_per_tile
+            # 18: animal_cow_sheep_ratio
+            # 19: animal_sheep_cow_ratio
+            # 20: wheat_feed_buffer_per_animal
+            # 21: max_fertilizer_to_keep
+            # 22: front_run_opponent_harvest_threshold
+            # 23: clearance_day_threshold
+            # 24: continuous_sale_min_amount
+            "marginal_sale_price_ratio_floor": float(0.20 + (action[25] + 1) * 0.20),  # 0.20 to 0.60
         }
 
         config = V10Config(**params)
