@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import contextmanager
 
 
@@ -40,6 +41,13 @@ with _suppress_output():
     from agent.engines.leader_v9 import LeaderV9Engine
     from agent.engines.leader_v9_1 import LeaderV91Engine
     from agent.engines.leader_v9_2 import LeaderV92Engine
+    from agent.harness.builtins import register_builtins
+
+    register_builtins()
+
+
+def run_single_match(seed, agent_class, opp_class, agent_name, opp_name):
+    # This top-level function runs in a child process, so we import dependencies locally.
     from agent.harness.adapters.kaggle import KaggleEnvironmentAdapter
     from agent.harness.builtins import register_builtins
     from agent.harness.execution import EpisodeRunner
@@ -47,63 +55,90 @@ with _suppress_output():
 
     register_builtins()
 
+    start = time.time()
+    agent_eng = agent_class()
+    opp_eng = opp_class()
+
+    adapter = KaggleEnvironmentAdapter(opponent=opp_eng.act)
+    runner = EpisodeRunner(RunConfig(seed=seed, max_turns=720))
+
+    # Suppress stdout/stderr inside the process to avoid garbled logs
+    fd_devnull = os.open(os.devnull, os.O_WRONLY)
+    old_stdout_fd = os.dup(1)
+    old_stderr_fd = os.dup(2)
+    os.dup2(fd_devnull, 1)
+    os.dup2(fd_devnull, 2)
+    try:
+        rec = runner.run(
+            adapter,
+            agent_eng.act,
+            episode_id=f"seed-{seed}",
+            agent_name=agent_name,
+            opponent_name=opp_name,
+        )
+    finally:
+        os.dup2(old_stdout_fd, 1)
+        os.dup2(old_stderr_fd, 2)
+        os.close(old_stdout_fd)
+        os.close(old_stderr_fd)
+        os.close(fd_devnull)
+
+    rewards = (
+        rec.raw_result["rewards"]
+        if isinstance(rec.raw_result, dict) and "rewards" in rec.raw_result
+        else [rec.metrics.get("final_money", 0), 0]
+    )
+    score_agent = rewards[0]
+    score_opp = rewards[1]
+    elapsed = time.time() - start
+
+    return seed, score_agent, score_opp, elapsed
+
 
 def run_evaluation(agent_name, opp_name, agent_class, opp_class, num_matches=30):
     wins = 0
     losses = 0
     ties = 0
-    agent_scores = []
-    opp_scores = []
-    results = []
+    agent_scores = [0.0] * num_matches
+    opp_scores = [0.0] * num_matches
+    results = [None] * num_matches
 
     print(
-        f"\n=== BENCHMARKING {agent_name.upper()} vs {opp_name.upper()} ({num_matches} MATCHES) ==="
+        f"\n=== BENCHMARKING {agent_name.upper()} vs {opp_name.upper()} "
+        f"({num_matches} MATCHES IN PARALLEL) ==="
     )
     sys.stdout.flush()
 
-    for seed in range(1, num_matches + 1):
-        start = time.time()
+    max_workers = os.cpu_count() or 4
+    completed = 0
 
-        agent_eng = agent_class()
-        opp_eng = opp_class()
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                run_single_match, seed, agent_class, opp_class, agent_name, opp_name
+            ): seed
+            for seed in range(1, num_matches + 1)
+        }
 
-        adapter = KaggleEnvironmentAdapter(opponent=opp_eng.act)
-        runner = EpisodeRunner(RunConfig(seed=seed, max_turns=720))
+        for future in as_completed(futures):
+            seed, score_agent, score_opp, elapsed = future.result()
+            completed += 1
+            idx = seed - 1
+            agent_scores[idx] = score_agent
+            opp_scores[idx] = score_opp
 
-        with _suppress_output():
-            rec = runner.run(
-                adapter,
-                agent_eng.act,
-                episode_id=f"seed-{seed}",
-                agent_name=agent_name,
-                opponent_name=opp_name,
-            )
+            margin = score_agent - score_opp
+            if score_agent > score_opp:
+                wins += 1
+                res = f"{agent_name.upper()} WIN"
+            elif score_opp > score_agent:
+                losses += 1
+                res = f"{opp_name.upper()} WIN"
+            else:
+                ties += 1
+                res = "TIE"
 
-        rewards = (
-            rec.raw_result["rewards"]
-            if isinstance(rec.raw_result, dict) and "rewards" in rec.raw_result
-            else [rec.metrics.get("final_money", 0), 0]
-        )
-        score_agent = rewards[0]
-        score_opp = rewards[1]
-
-        agent_scores.append(score_agent)
-        opp_scores.append(score_opp)
-
-        margin = score_agent - score_opp
-        if score_agent > score_opp:
-            wins += 1
-            res = f"{agent_name.upper()} WIN"
-        elif score_opp > score_agent:
-            losses += 1
-            res = f"{opp_name.upper()} WIN"
-        else:
-            ties += 1
-            res = "TIE"
-
-        elapsed = time.time() - start
-        results.append(
-            {
+            results[idx] = {
                 "match": seed,
                 "seed": seed,
                 "agent_score": score_agent,
@@ -112,14 +147,14 @@ def run_evaluation(agent_name, opp_name, agent_class, opp_class, num_matches=30)
                 "result": res,
                 "time_seconds": round(elapsed, 2),
             }
-        )
-        print(
-            f"Match {seed:>2}/{num_matches} [W:{wins} L:{losses} T:{ties}]: "
-            f"{agent_name.upper()}=${score_agent:>7,.0f} "
-            f"vs {opp_name.upper()}=${score_opp:>7,.0f} | Margin={margin:>+8,.0f} | "
-            f"{res} ({elapsed:.1f}s)"
-        )
-        sys.stdout.flush()
+
+            print(
+                f"[{completed:>3}/{num_matches}] Match {seed:>2}: "
+                f"{agent_name.upper()}=${score_agent:>7,.0f} "
+                f"vs {opp_name.upper()}=${score_opp:>7,.0f} | Margin={margin:>+8,.0f} | "
+                f"{res} ({elapsed:.1f}s)"
+            )
+            sys.stdout.flush()
 
     avg_agent = sum(agent_scores) / len(agent_scores)
     avg_opp = sum(opp_scores) / len(opp_scores)
