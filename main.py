@@ -4,9 +4,9 @@ import logging
 from typing import Any
 
 from agent.core.validation import validate_action
-from agent.engines.leader_v9_1 import LeaderV91Engine
+from agent.engines.leader_v9_2 import LeaderV92Engine
 
-_ENGINE = LeaderV91Engine()
+_ENGINE = LeaderV92Engine()
 _LOGGER = logging.getLogger(__name__)
 
 
