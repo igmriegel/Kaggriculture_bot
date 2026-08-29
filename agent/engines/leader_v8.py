@@ -247,7 +247,7 @@ class LeaderV8Engine(LeaderV7Engine):
 
         # 2. Pure Dynamic Land Expansion (Zero Hardcoded Day/Money Limits)
         unlocked_count = len(state.unlocked_quadrants)
-        no_unlock_yet = not any(o[0] == "UNLOCK" for o in orders)
+        no_unlock_yet = not any(o[0] == "BUY_LAND" for o in orders)
         if unlocked_count < 4 and len(orders) < self.v8_config.max_orders and no_unlock_yet:
             occupied_tiles = sum(1 for t in state.tiles if t.kind in ("PLANT", "PASTURE"))
             total_unlocked_capacity = unlocked_count * 9
@@ -263,7 +263,7 @@ class LeaderV8Engine(LeaderV7Engine):
 
             # Unlock when land saturation >= 75% AND we have liquidity to seed the new land
             if saturation_ratio >= 0.75 and state.money >= dynamic_unlock_threshold:
-                orders.append(["UNLOCK"])
+                orders.append(["BUY_LAND"])
 
         # 3. Shop-Aware Livestock Selection
         animal_goal = next((g.quantity for g in goals if g.name == "operational_animals"), 0)
