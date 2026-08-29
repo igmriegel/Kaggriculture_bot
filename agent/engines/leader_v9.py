@@ -187,7 +187,8 @@ class LeaderV9Engine(LeaderV8Engine):
 
             cost = self._hire_cost(state.hires_today)
 
-            # Keep a minimum worker crew of 2 (or 3/4 if farm is large) to prevent crops drying/decaying into weeds
+            # Keep a minimum worker crew of 2 (or 3/4 if farm is large)
+            # to prevent crops drying/decaying into weeds
             if (active_animals > 0 or plant_count > 0) and state.money >= cost + 150:
                 target_workers = (
                     4
