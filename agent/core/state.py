@@ -57,6 +57,7 @@ class NormalizedState:
     time_remaining: int | None
     opponent_tiles: tuple[Tile, ...] = ()
     opponent_money: int = 0
+    opponent_hand_count: int = 0
 
     @classmethod
     def from_observation(cls, observation: dict[str, Any]) -> NormalizedState:
@@ -181,6 +182,11 @@ class NormalizedState:
             time_remaining=_optional_integer(observation.get("time_remaining")),
             opponent_tiles=tuple(opponent_tiles),
             opponent_money=_integer(opp_farm.get("money")),
+            opponent_hand_count=(
+                len(opp_farm.get("hands", []))
+                if isinstance(opp_farm.get("hands"), list)
+                else 0
+            ),
         )
 
     def shed_tiles(self) -> tuple[tuple[int, int], ...]:

@@ -35,6 +35,7 @@ class KaggleEnvironmentAdapter:
         if self._environment is None:
             raise RuntimeError("reset must be called before step")
         opponent_action = self._opponent(_observation(self._environment, 1))
+        self.last_opponent_action = opponent_action
         self._environment.step([action, opponent_action])
         return _observation(self._environment, self._player)
 

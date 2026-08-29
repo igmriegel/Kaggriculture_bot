@@ -42,6 +42,7 @@ class TurnRecord(BaseModel):
     turn: int
     action_raw: Any = None
     action_sent: dict[str, Any]
+    opponent_action_sent: dict[str, Any] = Field(default_factory=dict)
     observation_hash: str | None = None
     observation_before: dict[str, Any] = Field(default_factory=dict)
     observation_after: dict[str, Any] = Field(default_factory=dict)
