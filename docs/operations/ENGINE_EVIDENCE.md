@@ -2,12 +2,11 @@
 
 ## Candidate and protocol
 
-The submission candidate is `leader-v2`, a deterministic full-cycle planner
-derived from leader replay phases. It reproduces the replay opening without
-copying coordinates or seeds: wait one turn, build a pasture, hire five hands,
-then buy four animals, melon/wheat seeds, and wheat feed. Its daily planner
-reserves feed collection before animal work, then builds, places, plants, and
-waters in opening order.
+The submission candidate is `leader-v9-1`, a deterministic full-cycle planner
+derived from Crop Dusta leader replays. It replicates the exact opening sequence
+(4 hires, 2 COW, 2 SHEEP, WHEAT/MELON seeds in Dia 0; 3ª COW + ração in Dia 1)
+and applies a low-friction WHEAT prioritization and late-game CARROT/WHEAT
+pivot strategy to maximize sales throughput across town shops.
 
 `leader-v3` is available as a separate benchmark agent. It is not promoted by
 registration alone; use the matrix in `BENCHMARKS.md` and attach the generated
