@@ -13,6 +13,7 @@ from agent.engines.leader_v7 import LeaderV7Engine
 from agent.engines.leader_v8 import LeaderV8Engine
 from agent.engines.leader_v9 import LeaderV9Engine
 from agent.engines.leader_v9_1 import LeaderV91Engine
+from agent.engines.leader_v9_2 import LeaderV92Engine
 from agent.engines.leader_v10 import LeaderV10Engine
 from agent.harness.adapters.kaggle import KaggleEnvironmentAdapter
 from agent.harness.models import Scenario
@@ -55,6 +56,8 @@ def register_builtins() -> None:
         register_agent("leader-v9", LeaderV9Engine())
     if "leader-v9-1" not in _names("agent"):
         register_agent("leader-v9-1", LeaderV91Engine())
+    if "leader-v9-2" not in _names("agent"):
+        register_agent("leader-v9-2", LeaderV92Engine())
     if "leader-v10" not in _names("agent"):
         register_agent("leader-v10", LeaderV10Engine())
     if "json" not in _names("reporter"):
@@ -160,6 +163,25 @@ def register_builtins() -> None:
                     name=name,
                     adapter="kaggriculture",
                     agent="leader-v9-1",
+                    opponent=opponent,
+                    seeds=seeds,
+                ),
+            )
+    for name, opponent, seeds in (
+        ("leader-v9-2-pass-development", "pass", tuple(range(1, 21))),
+        ("leader-v9-2-random-development", "random", tuple(range(1, 21))),
+        ("leader-v9-2-competitive-development", "competitive", tuple(range(1, 21))),
+        ("leader-v9-2-pass-confirmation", "pass", tuple(range(41, 81))),
+        ("leader-v9-2-random-confirmation", "random", tuple(range(41, 81))),
+        ("leader-v9-2-competitive-confirmation", "competitive", tuple(range(41, 81))),
+    ):
+        if name not in _names("scenario"):
+            register_scenario(
+                name,
+                Scenario(
+                    name=name,
+                    adapter="kaggriculture",
+                    agent="leader-v9-2",
                     opponent=opponent,
                     seeds=seeds,
                 ),
