@@ -93,6 +93,9 @@ class EpisodeRunner:
             try:
                 observation = environment.step(event.action_sent)
                 event.observation_after = _observation_summary(observation)
+                opp_act = getattr(environment, "last_opponent_action", None)
+                if isinstance(opp_act, dict):
+                    event.opponent_action_sent = opp_act
             except Exception as exc:
                 errors += 1
                 status = "environment_error"
@@ -251,6 +254,7 @@ def _economic_metrics(records: list[TurnRecord]) -> dict[str, Any]:
             "plants": [],
             "harvests": [],
             "sales": [],
+            "opp_sales": [],
         }
         for item in all_items
     }
@@ -314,6 +318,24 @@ def _economic_metrics(records: list[TurnRecord]) -> dict[str, Any]:
                 if item_name in item_lifecycle:
                     unit_price = prices.get(item_name, 0) if isinstance(prices, dict) else 0
                     item_lifecycle[item_name]["sales"].append(
+                        {
+                            "day": day,
+                            "hour": hour,
+                            "quantity": quantity,
+                            "price": unit_price,
+                        }
+                    )
+
+        for order in record.opponent_action_sent.get("market", []):
+            if not order or not isinstance(order[0], str):
+                continue
+            operation = order[0]
+            if operation == "SELL" and len(order) > 1 and isinstance(order[1], str):
+                item_name = order[1].upper()
+                if item_name in item_lifecycle:
+                    quantity = int(order[2]) if len(order) > 2 and isinstance(order[2], int) else 1
+                    unit_price = prices.get(item_name, 0) if isinstance(prices, dict) else 0
+                    item_lifecycle[item_name]["opp_sales"].append(
                         {
                             "day": day,
                             "hour": hour,
