@@ -61,3 +61,11 @@ kaggle-status:
 kaggle-retrieve:
 	mkdir -p reports/kaggle
 	kaggle kernels output igormriegel/kaggriculture-optimization -p reports/kaggle/
+
+.PHONY: apply-v10-results
+apply-v10-results:
+	$(PYTHON) scripts/apply_v10_params.py
+
+.PHONY: v10-integrate
+v10-integrate: kaggle-retrieve apply-v10-results
+
