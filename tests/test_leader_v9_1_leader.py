@@ -142,9 +142,9 @@ class TestLeaderV9_1LeaderEngine:
 
         obs = _observation(day=5, hour=1, opp_tiles=opp_tiles)
         state = NormalizedState.from_observation(obs)
-        
+
         roi_with_opp_wheat = engine._calculate_marginal_tile_roi("WHEAT", state, 25, 0)
-        
+
         # Opponent has 0 wheat tiles
         obs_no_opp = _observation(day=5, hour=1)
         state_no_opp = NormalizedState.from_observation(obs_no_opp)

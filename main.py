@@ -4,9 +4,9 @@ import logging
 from typing import Any
 
 from agent.core.validation import validate_action
-from agent.engines.leader_v10 import LeaderV10Engine
+from agent.engines.mcts_lookahead import MCTSLookaheadEngine
 
-_ENGINE = LeaderV10Engine()
+_ENGINE = MCTSLookaheadEngine()
 _LOGGER = logging.getLogger(__name__)
 
 

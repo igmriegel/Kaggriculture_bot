@@ -40,6 +40,8 @@ with _suppress_output():
     from agent.engines.leader_v8 import LeaderV8Engine
     from agent.engines.leader_v9 import LeaderV9Engine
     from agent.engines.leader_v10 import LeaderV10Engine
+    from agent.engines.mcts_lookahead import MCTSLookaheadEngine
+
     from agent.harness.adapters.kaggle import KaggleEnvironmentAdapter
     from agent.harness.builtins import register_builtins
     from agent.harness.execution import EpisodeRunner
@@ -170,8 +172,21 @@ def main():
     v9_report = run_evaluation(
         "leader-v10", "leader-v9", LeaderV10Engine, LeaderV9Engine, num_matches=args.num_matches
     )
+    mcts_v10_report = run_evaluation(
+        "mcts-lookahead",
+        "leader-v10",
+        MCTSLookaheadEngine,
+        LeaderV10Engine,
+        num_matches=args.num_matches,
+    )
 
-    all_reports = {"v6": v6_report, "v7": v7_report, "v8": v8_report, "v9": v9_report}
+    all_reports = {
+        "v6": v6_report,
+        "v7": v7_report,
+        "v8": v8_report,
+        "v9": v9_report,
+        "mcts_v10": mcts_v10_report,
+    }
 
     with open("reports/benchmarks/latest.json", "w") as f:
         json.dump(all_reports, f, indent=2)
@@ -184,10 +199,9 @@ def main():
             "| Matchup | Win Rate | Avg V10 | Avg Opp | Min V10 | Max V10 | Min Opp | Max Opp | Margin |\n"
         )
         f.write("|:---|:---:|---:|---:|---:|---:|---:|---:|---:|\n")
-        for key in ["v6", "v7", "v8", "v9"]:
-            r = all_reports[key]
+        for key, r in all_reports.items():
             f.write(
-                f"| V10 vs {r['opponent'].upper()} | {r['win_rate']}% "
+                f"| {r['agent'].upper()} vs {r['opponent'].upper()} | {r['win_rate']}% "
                 f"| ${r['average_agent_score']:,.2f} | ${r['average_opponent_score']:,.2f} "
                 f"| ${r['min_agent_score']:,.0f} | ${r['max_agent_score']:,.0f} "
                 f"| ${r['min_opp_score']:,.0f} | ${r['max_opp_score']:,.0f} "
@@ -195,8 +209,7 @@ def main():
             )
         f.write("\n")
 
-        for key in ["v6", "v7", "v8", "v9"]:
-            rep = all_reports[key]
+        for key, rep in all_reports.items():
             f.write(f"## {rep['agent'].upper()} vs {rep['opponent'].upper()}\n")
             f.write(f"* **Win Rate:** {rep['win_rate']}%\n")
             f.write(
@@ -210,7 +223,7 @@ def main():
             for m in rep["matches"]:
                 badge = (
                     f"**{m['result']}**"
-                    if "WIN" in m["result"] and "V10" in m["result"]
+                    if "WIN" in m["result"] and rep["agent"].upper() in m["result"]
                     else m["result"]
                 )
                 f.write(

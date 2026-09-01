@@ -1299,7 +1299,7 @@ def _sales_comparison_table_html(episode: ReportEpisode) -> str:
         "<tr>"
         '<th rowspan="2" style="vertical-align: middle;">Item</th>'
         '<th colspan="4" style="text-align:center; border-right: 2px solid var(--border);">'
-        'Our Sales (Us)</th>'
+        "Our Sales (Us)</th>"
         '<th colspan="4" style="text-align:center;">Opponent Sales</th>'
         "</tr>"
         "<tr>"

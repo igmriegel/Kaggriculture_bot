@@ -18,6 +18,8 @@ MARKET = {
     "WOOL": (200, 105, "log", 0.20, "sq", 3.20),
     "FERTILIZER": (100, 200, "linear", 0.40, "linear", 0.40),
 }
+CROP_BASE_PRICES = {k: v[0] for k, v in MARKET.items()}
+
 SHOPS = {
     "BAKERY": ("EGG", "WHEAT"),
     "PIZZA_SHOP": ("MILK", "TOMATO", "WHEAT"),

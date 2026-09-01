@@ -71,10 +71,7 @@ def run_evaluation(agent_name, opp_name, agent_class, opp_class, num_matches=30)
         opp_eng = opp_class()
 
         adapter = KaggleEnvironmentAdapter(opponent=opp_eng.act)
-        runner = EpisodeRunner(
-            RunConfig(seed=seed, max_turns=720),
-            reporters=[reporter]
-        )
+        runner = EpisodeRunner(RunConfig(seed=seed, max_turns=720), reporters=[reporter])
 
         with _suppress_output():
             rec = runner.run(
@@ -258,16 +255,24 @@ def main():
             f"{r['average_margin']:>+10,.0f}"
         )
 
-
     # Auto-generate local HTML reports for matches
     print("\nGenerating local HTML reports...")
     import subprocess
+
     cmd = [
-        "uv", "run", "python", "-m", "scripts.update_submission_reports",
-        "--reports-dir", "reports/benchmarks_html",
-        "--local-root", "reports/local/leader-v9.1-leader_vs_leader-v7",
-        "--local-root", "reports/local/leader-v9.1-leader_vs_leader-v8",
-        "--local-root", "reports/local/leader-v9.1-leader_vs_leader-v9"
+        "uv",
+        "run",
+        "python",
+        "-m",
+        "scripts.update_submission_reports",
+        "--reports-dir",
+        "reports/benchmarks_html",
+        "--local-root",
+        "reports/local/leader-v9.1-leader_vs_leader-v7",
+        "--local-root",
+        "reports/local/leader-v9.1-leader_vs_leader-v8",
+        "--local-root",
+        "reports/local/leader-v9.1-leader_vs_leader-v9",
     ]
     try:
         subprocess.run(cmd, check=True)

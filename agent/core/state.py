@@ -183,9 +183,7 @@ class NormalizedState:
             opponent_tiles=tuple(opponent_tiles),
             opponent_money=_integer(opp_farm.get("money")),
             opponent_hand_count=(
-                len(opp_farm.get("hands", []))
-                if isinstance(opp_farm.get("hands"), list)
-                else 0
+                len(opp_farm.get("hands", [])) if isinstance(opp_farm.get("hands"), list) else 0
             ),
         )
 

@@ -80,7 +80,7 @@ class LeaderV9_1LeaderEngine(LeaderV9Engine):
         # V9 inherited: WHEAT penalty (-12), CARROT penalty (-6), STRAWBERRY boost (*1.5),
         # MELON boost (*1.3). We want to remove the WHEAT/CARROT labor friction penalties,
         # and also remove the MELON boost.
-        
+
         # Call LeaderV8Engine's method to get a clean baseline ROI:
         base_roi = super(LeaderV9Engine, self)._calculate_marginal_tile_roi(
             crop, state, horizon, current_planned_tiles
@@ -104,12 +104,12 @@ class LeaderV9_1LeaderEngine(LeaderV9Engine):
                 1 for t in state.opponent_tiles if t.kind == "PLANT" and t.crop == "WHEAT"
             )
             market_wheat_inv = state.market_inventory.get("WHEAT", 10000)
-            
+
             if opp_wheat_tiles >= 5 or market_wheat_inv > 10150:
                 bias = 1.0
             else:
                 bias = self.leader_config.wheat_bias
-            
+
             return max(0.0, base_roi - penalty) * bias
 
         # CARROT base labor friction penalty:
@@ -121,8 +121,7 @@ class LeaderV9_1LeaderEngine(LeaderV9Engine):
         # (PET_CAFE or FARMERS_MARKET) is unlocked.
         if crop == "CARROT" and state.day >= self.leader_config.carrot_pivot_day:
             carrot_shops = any(
-                any(c == "CARROT" for c in SHOPS.get(shop, ()))
-                for shop in state.shops
+                any(c == "CARROT" for c in SHOPS.get(shop, ())) for shop in state.shops
             )
             if carrot_shops:
                 return base_roi * self.leader_config.carrot_roi_multiplier
@@ -134,12 +133,9 @@ class LeaderV9_1LeaderEngine(LeaderV9Engine):
         if state.day >= 29:
             tasks = super()._tasks(state, goals)
             disallowed = ("PLANT", "WATER", "DIG", "BUILD_PASTURE", "BUILD_COOP")
-            tasks = [
-                t for t in tasks
-                if not any(op in t.command for op in disallowed)
-            ]
+            tasks = [t for t in tasks if not any(op in t.command for op in disallowed)]
             return tasks
-            
+
         return super()._tasks(state, goals)
 
     def _build_market_orders(
@@ -182,7 +178,7 @@ class LeaderV9_1LeaderEngine(LeaderV9Engine):
         # 3. Mid/Late-game market orders: inherit and apply workforce matching
         # and capped land buys.
         orders = super()._build_market_orders(state, goals, tasks)
-        
+
         # Land Expansion Cap: If BUY_LAND is present in orders but we already
         # have max quadrants, remove it.
         if len(state.unlocked_quadrants) >= self.leader_config.max_unlocked_quadrants:
@@ -191,11 +187,9 @@ class LeaderV9_1LeaderEngine(LeaderV9Engine):
         # Workforce matching:
         total_workers = 1 + len(state.hand_positions)
         opp_workers = 1 + state.opponent_hand_count
-        
+
         # Calculate pending workload actions:
-        unwatered_crops = sum(
-            1 for t in state.tiles if t.kind == "PLANT" and not t.watered_today
-        )
+        unwatered_crops = sum(1 for t in state.tiles if t.kind == "PLANT" and not t.watered_today)
         unfed_animals = sum(
             1 for t in state.tiles if t.kind == "PASTURE" and t.animal and not t.fed_today
         )
@@ -219,17 +213,17 @@ class LeaderV9_1LeaderEngine(LeaderV9Engine):
                 # Check shops
                 yarn_shops = sum(1 for shop in state.shops if "WOOL" in SHOPS.get(shop, ()))
                 dairy_shops = sum(1 for shop in state.shops if "MILK" in SHOPS.get(shop, ()))
-                
+
                 current_cows = sum(1 for t in state.tiles if t.animal == "COW")
                 current_sheep = sum(1 for t in state.tiles if t.animal == "SHEEP")
-                
+
                 if yarn_shops == 0 and dairy_shops > 0:
                     preferred_animal = "COW"
                 elif dairy_shops == 0 and yarn_shops > 0:
                     preferred_animal = "SHEEP"
                 else:
                     preferred_animal = "COW" if current_cows <= current_sheep else "SHEEP"
-                
+
                 orders[idx] = ["BUY_ANIMAL", preferred_animal, o[2]]
 
         return orders[:10]

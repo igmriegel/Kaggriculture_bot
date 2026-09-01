@@ -99,7 +99,6 @@ class KaggricultureParamGymEnv(gym.Env):
             "speculation_hold_threshold": float(0.70 + (action[8] + 1) * 0.125),  # 0.70 to 0.95
             "speculation_min_liquidity": int(1000 + (action[9] + 1) * 750),  # 1000 to 2500
             "opponent_crop_penalty": float(0.01 + (action[10] + 1) * 0.07),  # 0.01 to 0.15
-            
             # New 14 parameters mapping:
             "feed_buffer_threshold": int(np.round(2 + (action[11] + 1) * 2)),  # 2 to 6
             "feed_buy_min_money": int(np.round(50 + (action[12] + 1) * 125)),  # 50 to 300
@@ -112,7 +111,9 @@ class KaggricultureParamGymEnv(gym.Env):
             "animal_sheep_cow_ratio": float(1.0 + (action[19] + 1) * 1.5),  # 1.0 to 4.0
             "wheat_feed_buffer_per_animal": int(np.round(1 + (action[20] + 1) * 1.5)),  # 1 to 4
             "max_fertilizer_to_keep": int(np.round(1 + (action[21] + 1) * 2.5)),  # 1 to 6
-            "front_run_opponent_harvest_threshold": int(np.round(2 + (action[22] + 1) * 4)),  # 2 to 10
+            "front_run_opponent_harvest_threshold": int(
+                np.round(2 + (action[22] + 1) * 4)
+            ),  # 2 to 10
             "clearance_day_threshold": int(np.round(25 + (action[23] + 1) * 2)),  # 25 to 29
             "continuous_sale_min_amount": int(np.round(1 + (action[24] + 1) * 2)),  # 1 to 5
             # We map 25 parameters, marginal_sale_price_ratio_floor is mapped from action[24] or we can map it too.
@@ -133,7 +134,9 @@ class KaggricultureParamGymEnv(gym.Env):
             # 22: front_run_opponent_harvest_threshold
             # 23: clearance_day_threshold
             # 24: continuous_sale_min_amount
-            "marginal_sale_price_ratio_floor": float(0.20 + (action[25] + 1) * 0.20),  # 0.20 to 0.60
+            "marginal_sale_price_ratio_floor": float(
+                0.20 + (action[25] + 1) * 0.20
+            ),  # 0.20 to 0.60
         }
 
         config = V10Config(**params)

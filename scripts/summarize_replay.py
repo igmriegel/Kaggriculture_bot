@@ -56,7 +56,7 @@ def parse_replay(replay_path: Path) -> dict[str, Any]:
         },
     }
 
-    for step_idx, step in enumerate(steps):
+    for _step_idx, step in enumerate(steps):
         if not isinstance(step, list):
             continue
 

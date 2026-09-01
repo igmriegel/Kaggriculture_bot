@@ -1,0 +1,41 @@
+# Project Memo: Resuming Kaggriculture Bot Work
+
+**Last Update:** 2026-08-29
+**Version:** V10 Engine & Submission
+
+---
+
+## 1. Current Context & Status
+
+### V10 Engine Details (agent/engines/leader_v10.py)
+- **Key Enhancements**:
+  - Parameterized heuristics into `V10Config` with 14 new genetic-algorithm-ready parameters.
+  - **Hires & Workload**: Dynamic feed buffers (`feed_buffer_threshold`, `feed_buy_min_money`, `feed_buffer_days`), workload-based hiring (`hire_workload_threshold`, `hire_min_animals`).
+  - **Land Expansion**: Ratio-based unlock thresholds (`land_unlock_saturation_ratio`) and dynamic cash buffers per tile (`seed_buffer_per_tile`).
+  - **Livestock Selection**: Shop-aware cow-to-sheep ratio logic to optimize animal choices based on unlocked shops.
+  - **Shed & Sales Optimization**: Front-run opponent harvest detection (`front_run_opponent_harvest_threshold`), day clearance thresholds, minimum continuous sale quantities, and marginal sale floor ratios.
+  - **Market Speculation**: Holds sales if projected future prices are significantly higher, provided the bot maintains a minimum liquidity buffer.
+  - **Anti-Monopoly Crop Penalty**: Penalty to crop ROIs based on opponent presence (`opponent_crop_penalty`).
+
+### Accomplished Today
+1. **Sanity Verification**:
+   - Confirmed `main.py` is configured to run the `LeaderV10Engine()`.
+   - Executed the full test suite (`pytest`), verifying all **126 tests** passed.
+2. **Local Packaging**:
+   - Packaged and isolated-validated the submission package (`dist/submission.tar.gz`), confirming the submission structure/layout is valid.
+3. **Kaggle Submission**:
+   - Ran `make submit MSG="feat: v10 submission"`, sending the v10 agent to the Kaggle competition successfully.
+
+---
+
+## 2. Detailed TO-DO for Tomorrow
+
+- [ ] **Check Submission Status**:
+  - Run `kaggle kernels status igormriegel/kaggriculture-optimization` or check the Kaggle competition page to ensure the submission evaluated without errors and see its score.
+- [ ] **Benchmark Execution**:
+  - Request running local benchmarks to verify v10's average performance/seeds against previous versions.
+  - Note: Remember **never to run `make benchmarks` directly**; ask the user to run it and wait for confirmation.
+- [ ] **Review Reports**:
+  - Run `make reports-local` or `make reports` to update and analyze local progress reports.
+- [ ] **Hyperparameter Tuning (If needed)**:
+  - If v10 results show room for improvement or regressions on specific seeds, review `V10Config` defaults or run the parameters optimizer (`scripts/optimize_v10.py`).
