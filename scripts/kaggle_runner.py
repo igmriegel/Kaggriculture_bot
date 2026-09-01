@@ -54,21 +54,42 @@ def train_rl(total_timesteps: int, output_model_path: str):
 
 
 def run_optuna(n_trials: int, output_json_path: str):
-    """Run Optuna parameter optimization on CPU/GPU."""
+    """Run Optuna parameter optimization on Kaggle with SQLite persistence & checkpoints."""
     print("=== STARTING OPTUNA PARAMETER OPTIMIZATION ===")
     import optuna
 
     sys.path.append("/kaggle/input/kaggriculture-bot-code")
     from optimize_v10 import objective
 
-    # Use CMA-ES sampler for evolutionary optimization
+    db_dir = os.path.dirname(output_json_path) or "/kaggle/working"
+    db_path = os.path.join(db_dir, "optuna_v10_study.db")
+    storage_url = f"sqlite:///{db_path}"
+    study_name = "kaggriculture_v10_optimization"
+
+    print(f"Using SQLite study storage at: {db_path}")
+
+    # Load existing study if present to resume seamlessly across Kaggle runs
     study = optuna.create_study(
-        direction="maximize", sampler=optuna.samplers.CmaEsSampler(warn_independent_sampling=False)
+        study_name=study_name,
+        storage=storage_url,
+        load_if_exists=True,
+        direction="maximize",
+        sampler=optuna.samplers.CmaEsSampler(warn_independent_sampling=False),
     )
 
-    num_cpu = os.cpu_count() or 2
-    print(f"Running {n_trials} trials in parallel using {num_cpu} jobs...")
-    study.optimize(objective, n_trials=n_trials, n_jobs=num_cpu)
+    completed_trials = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
+    print(f"Study already has {completed_trials} completed trials stored in DB.")
+
+    def callback(study: optuna.Study, trial: optuna.trial.FrozenTrial):
+        if study.best_trial.number == trial.number:
+            print(f"\n[Checkpoint] New best trial {trial.number} with value {trial.value:,.2f}")
+            with open(output_json_path, "w") as f:
+                json.dump(study.best_params, f, indent=4)
+            print(f"[Checkpoint] Best parameters updated at {output_json_path}")
+
+    # Note: We run Optuna with n_jobs=1 (sequential trials) so each trial gets 100% CPU
+    print(f"Optimizing for {n_trials} trials...")
+    study.optimize(objective, n_trials=n_trials, n_jobs=1, callbacks=[callback])
 
     print("\n=== OPTIMIZATION COMPLETE ===")
     print(f"Best Trial Value (Margin vs V9): ${study.best_value:,.2f}")
@@ -79,6 +100,7 @@ def run_optuna(n_trials: int, output_json_path: str):
     with open(output_json_path, "w") as f:
         json.dump(study.best_params, f, indent=4)
     print(f"Best parameters saved to: {output_json_path}")
+
 
 
 def main():

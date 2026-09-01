@@ -86,23 +86,28 @@ def objective(trial: optuna.Trial) -> float:
         "speculation_hold_threshold": trial.suggest_float("speculation_hold_threshold", 0.70, 0.95),
         "speculation_min_liquidity": trial.suggest_int("speculation_min_liquidity", 1000, 2500),
         "opponent_crop_penalty": trial.suggest_float("opponent_crop_penalty", 0.01, 0.15),
-        
         # New 14 parameters
         "feed_buffer_threshold": trial.suggest_int("feed_buffer_threshold", 2, 6),
         "feed_buy_min_money": trial.suggest_int("feed_buy_min_money", 50, 300),
         "feed_buffer_days": trial.suggest_int("feed_buffer_days", 1, 5),
         "hire_workload_threshold": trial.suggest_int("hire_workload_threshold", 6, 18),
         "hire_min_animals": trial.suggest_int("hire_min_animals", 1, 5),
-        "land_unlock_saturation_ratio": trial.suggest_float("land_unlock_saturation_ratio", 0.50, 0.90),
+        "land_unlock_saturation_ratio": trial.suggest_float(
+            "land_unlock_saturation_ratio", 0.50, 0.90
+        ),
         "seed_buffer_per_tile": trial.suggest_int("seed_buffer_per_tile", 10, 60),
         "animal_cow_sheep_ratio": trial.suggest_float("animal_cow_sheep_ratio", 1.5, 5.0),
         "animal_sheep_cow_ratio": trial.suggest_float("animal_sheep_cow_ratio", 1.0, 4.0),
         "wheat_feed_buffer_per_animal": trial.suggest_int("wheat_feed_buffer_per_animal", 1, 4),
         "max_fertilizer_to_keep": trial.suggest_int("max_fertilizer_to_keep", 1, 6),
-        "front_run_opponent_harvest_threshold": trial.suggest_int("front_run_opponent_harvest_threshold", 2, 10),
+        "front_run_opponent_harvest_threshold": trial.suggest_int(
+            "front_run_opponent_harvest_threshold", 2, 10
+        ),
         "clearance_day_threshold": trial.suggest_int("clearance_day_threshold", 25, 29),
         "continuous_sale_min_amount": trial.suggest_int("continuous_sale_min_amount", 1, 5),
-        "marginal_sale_price_ratio_floor": trial.suggest_float("marginal_sale_price_ratio_floor", 0.20, 0.60),
+        "marginal_sale_price_ratio_floor": trial.suggest_float(
+            "marginal_sale_price_ratio_floor", 0.20, 0.60
+        ),
     }
 
     seeds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
@@ -123,13 +128,32 @@ def main():
     print("=== STARTING LEADER_V10 EVOLUTIONARY OPTIMIZATION (OPTUNA) ===")
     print("Optimization target: Maximize Margin against LeaderV9 over 15 different seeds.")
 
-    # We use CMA-ES sampler for genetic/evolutionary optimization
+    db_path = os.environ.get("OPTUNA_DB_PATH", "optuna_v10_study.db")
+    storage_url = f"sqlite:///{db_path}"
+    study_name = "kaggriculture_v10_optimization"
+
+    # We use CMA-ES sampler for genetic/evolutionary optimization with SQLite storage
     study = optuna.create_study(
-        direction="maximize", sampler=optuna.samplers.CmaEsSampler(warn_independent_sampling=False)
+        study_name=study_name,
+        storage=storage_url,
+        load_if_exists=True,
+        direction="maximize",
+        sampler=optuna.samplers.CmaEsSampler(warn_independent_sampling=False),
     )
 
+    out_path = os.environ.get("OPTUNA_OUT_JSON", "agent/engines/leader_v10_best.json")
+
+    def callback(study: optuna.Study, trial: optuna.trial.FrozenTrial):
+        if study.best_trial.number == trial.number:
+            print(f"\n[Checkpoint] New best trial {trial.number} with value {trial.value:,.2f}")
+            out_dir = os.path.dirname(out_path)
+            if out_dir:
+                os.makedirs(out_dir, exist_ok=True)
+            with open(out_path, "w") as f:
+                json.dump(study.best_params, f, indent=4)
+
     try:
-        study.optimize(objective, n_trials=300, show_progress_bar=True)
+        study.optimize(objective, n_trials=300, callbacks=[callback], show_progress_bar=True)
     except KeyboardInterrupt:
         print("\nOptimization interrupted by user. Saving current best parameters...")
 
@@ -139,8 +163,10 @@ def main():
     for k, v in study.best_params.items():
         print(f"  {k}: {v}")
 
-    # Save to JSON
-    out_path = "agent/engines/leader_v10_best.json"
+    # Final Save to JSON
+    out_dir = os.path.dirname(out_path)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     with open(out_path, "w") as f:
         json.dump(study.best_params, f, indent=4)
     print(f"\nBest parameters saved to: {out_path}")
@@ -148,3 +174,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
