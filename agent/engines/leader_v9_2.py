@@ -22,7 +22,7 @@ class LeaderV92Config(LeaderV9Config):
     wheat_labor_penalty: float = 12.0     # Was 12.0 in V9, 1.5 in V9.1
     carrot_labor_penalty: float = 4.0     # Was 6.0 in V9, 3.0 in V9.1
     carrot_late_penalty: float = 2.0      # After day 16
-    melon_cutoff_day: int = 12            # Was 15 in V9, 5 in V9.1
+    melon_cutoff_day: int = 18            # Was 12 in V9.2 baseline, 15 in V9
     strawberry_cutoff_day: int = 20       # Was none in V9, 18 in V9.1
     tomato_cutoff_day: int = 22           # Was none in V9, 20 in V9.1
     day0_hires: int = 2                   # Was 1 in V9, 4 in V9.1
@@ -33,6 +33,23 @@ class LeaderV92Engine(LeaderV9Engine):
     def __init__(self, config: LeaderV92Config | None = None) -> None:
         self.v92_config = config or LeaderV92Config()
         super().__init__(self.v92_config)
+
+    def _sales(
+        self, state: NormalizedState, projected: dict[str, int] | None = None
+    ) -> list[list[Any]]:
+        orders = super()._sales(state, projected)
+
+        # Mid-game liquidation: Sell MELON continuously when harvested to unlock cash flow
+        if not self._closing(state):
+            melon_in_shed = state.shed.get("MELON", 0)
+            already_selling_melon = any(
+                len(o) > 1 and o[0] == "SELL" and o[1] == "MELON" for o in orders
+            )
+            if melon_in_shed >= 2 and not already_selling_melon:
+                if len(orders) < self.v8_config.max_orders:
+                    orders.append(["SELL", "MELON", melon_in_shed])
+
+        return orders
 
     def _build_market_orders(
         self, state: NormalizedState, goals: tuple[ProductionGoal, ...], tasks: list[Task]
@@ -45,7 +62,7 @@ class LeaderV92Engine(LeaderV9Engine):
                 orders.append(["BUY_ANIMAL", "COW", 2])
                 orders.append(["BUY_ANIMAL", "SHEEP", 2])
                 if has_strawberry_shop:
-                    orders.append(["BUY_SEED", "STRAWBERRY", 3])
+                    orders.append(["BUY_SEED", "STRAWBERRY", 4])
                     orders.append(["BUY_SEED", "WHEAT", 6])
                 else:
                     orders.append(["BUY_SEED", "MELON", 4])
@@ -84,13 +101,13 @@ class LeaderV92Engine(LeaderV9Engine):
             return max(0.0, base_roi - penalty)
 
         elif crop == "STRAWBERRY":
-            if state.day < 12:
-                return base_roi * 1.5
-            elif state.day > cfg.strawberry_cutoff_day:
+            if state.day <= cfg.strawberry_cutoff_day:
+                return base_roi * (1.5 if state.day < 12 else 1.25)
+            else:
                 return 0.0
 
         elif crop == "MELON":
-            if state.day < cfg.melon_cutoff_day:
+            if state.day <= cfg.melon_cutoff_day:
                 return base_roi * 1.3
             else:
                 return 0.0
