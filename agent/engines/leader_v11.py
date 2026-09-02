@@ -83,7 +83,9 @@ class LeaderV11Engine(LeaderV92Engine):
 
         # 2. Labor Friction Penalties
         if crop == "WHEAT":
-            return max(0.0, base_roi - cfg.wheat_labor_penalty)
+            active_animals = self._animal_count(state) + self._pending_animals(state)
+            penalty = 1.5 if active_animals > 0 else cfg.wheat_labor_penalty
+            return max(0.0, base_roi - penalty)
         elif crop == "CARROT":
             penalty = cfg.carrot_late_penalty if state.day > 16 else cfg.carrot_labor_penalty
             return max(0.0, base_roi - penalty)
