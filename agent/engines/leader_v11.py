@@ -16,6 +16,7 @@ from typing import Any
 from agent.core.state import NormalizedState
 from agent.domain.monte_carlo import monte_carlo_price_projection
 from agent.domain.opponent_model import OpponentTracker
+from agent.engines.leader_v2 import ProductionGoal, Task
 from agent.engines.leader_v9_2 import LeaderV92Config, LeaderV92Engine
 
 
@@ -34,9 +35,12 @@ class LeaderV11Engine(LeaderV92Engine):
     """Eleventh Generation Hybrid Engine (V11)."""
 
     def __init__(self, config: LeaderV11Config | None = None) -> None:
+        from agent.domain.value_function import StateValueEvaluator
+
         self.v11_config = config or LeaderV11Config()
         super().__init__(self.v11_config)
         self.opp_tracker = OpponentTracker()
+        self.value_evaluator = StateValueEvaluator()
         self._mc_cache: dict[str, tuple[float, float, float]] | None = None
 
     def reset_cycle(self) -> None:
@@ -135,3 +139,48 @@ class LeaderV11Engine(LeaderV92Engine):
                 base_roi *= min(1.2, max(0.8, adjustment))
 
         return base_roi
+
+    def _goals(self, state: NormalizedState) -> tuple[ProductionGoal, ...]:
+        goals = list(super()._goals(state))
+
+        # Opponent Countering: Expand livestock target if opponent surrenders livestock
+        opp_prof = self.opp_tracker.profile
+        opp_animals = opp_prof.crop_counts.get("COW", 0) + opp_prof.crop_counts.get("SHEEP", 0)
+
+        for idx, g in enumerate(goals):
+            if g.name == "operational_animals":
+                quadrants = len(state.unlocked_quadrants)
+                max_pastures = 4 if quadrants == 1 else (8 if quadrants == 2 else 14)
+                if opp_animals < 4 and state.day >= 6 and state.day <= 22:
+                    new_target = min(max_pastures, g.quantity + 2)
+                    goals[idx] = ProductionGoal("operational_animals", new_target, g.deadline_day)
+                break
+
+        return tuple(goals)
+
+    def _build_market_orders(
+        self, state: NormalizedState, goals: tuple[ProductionGoal, ...], tasks: list[Task]
+    ) -> list[list[Any]]:
+        orders = super()._build_market_orders(state, goals, tasks)
+
+        # Dynamic Animal Arbitrage: counter opponent's animal bias
+        opp_profile = self.opp_tracker.profile
+        opp_cows = opp_profile.crop_counts.get("COW", 0)
+        opp_sheeps = opp_profile.crop_counts.get("SHEEP", 0)
+
+        # Goose / Egg Arbitrage: if EGG shops active and EGG price >= $75, buy GOOSE!
+        from agent.domain.economics import SHOPS
+
+        egg_shops = sum(1 for shop in state.shops if "EGG" in SHOPS.get(shop, ()))
+        current_geese = sum(1 for t in state.tiles if t.animal == "GOOSE")
+
+        for order in orders:
+            if len(order) > 1 and order[0] == "BUY_ANIMAL":
+                if egg_shops >= 1 and current_geese < 2 and state.prices.get("EGG", 50) >= 75:
+                    order[1] = "GOOSE"
+                elif opp_cows > opp_sheeps + 1 and order[1] == "COW":
+                    order[1] = "SHEEP"
+                elif opp_sheeps > opp_cows + 1 and order[1] == "SHEEP":
+                    order[1] = "COW"
+
+        return orders

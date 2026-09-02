@@ -169,7 +169,14 @@ def _package_submission(args: argparse.Namespace) -> int:
     root = Path(__file__).resolve().parents[2]
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    runtime_files = [root / "main.py", *sorted((root / "agent").rglob("*.py"))]
+    runtime_files = [
+        root / "main.py",
+        *sorted(
+            p
+            for p in (root / "agent").rglob("*")
+            if p.suffix in {".py", ".json", ".joblib"} and p.is_file()
+        ),
+    ]
     with tarfile.open(output, "w:gz") as archive:
         for source in runtime_files:
             archive.add(source, arcname=source.relative_to(root))
