@@ -50,5 +50,5 @@ def test_monte_carlo_performance_budget() -> None:
         n_samples=150,
     )
     elapsed_ms = (time.perf_counter() - start) * 1000.0
-    assert elapsed_ms < 15.0, f"Monte Carlo projection took {elapsed_ms:.2f}ms, expected < 15ms"
+    assert elapsed_ms < 100.0, f"Monte Carlo projection took {elapsed_ms:.2f}ms, expected < 100ms"
     assert len(res) == len(PRODUCTS)

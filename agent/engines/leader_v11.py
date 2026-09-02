@@ -22,8 +22,12 @@ from agent.engines.leader_v9_2 import LeaderV92Config, LeaderV92Engine
 @dataclass(frozen=True)
 class LeaderV11Config(LeaderV92Config):
     mc_samples: int = 150
-    mc_weight: float = 0.5  # Weight of Monte Carlo mean price vs spot price in ROI
-    opp_discount_threshold: int = 10  # Opponent supply threshold for ROI discount
+    mc_weight: float = 0.0503
+    wheat_labor_penalty: float = 5.02
+    carrot_labor_penalty: float = 3.50
+    carrot_late_penalty: float = 2.19
+    min_cash_buffer_livestock: int = 730
+    double_animal_buy_threshold: int = 1264
 
 
 class LeaderV11Engine(LeaderV92Engine):
@@ -64,14 +68,54 @@ class LeaderV11Engine(LeaderV92Engine):
     def _calculate_marginal_tile_roi(
         self, crop: str, state: NormalizedState, horizon: int, current_planned_tiles: int
     ) -> float:
-        base_roi = super()._calculate_marginal_tile_roi(
+        # 1. Base ROI from V8 (bypassing V92 static day cutoffs)
+        from agent.engines.leader_v9 import LeaderV9Engine
+
+        base_roi = super(LeaderV9Engine, self)._calculate_marginal_tile_roi(
             crop, state, horizon, current_planned_tiles
         )
+
+        cfg = self.v11_config
+
+        # 2. Labor Friction Penalties
+        if crop == "WHEAT":
+            return max(0.0, base_roi - cfg.wheat_labor_penalty)
+        elif crop == "CARROT":
+            penalty = cfg.carrot_late_penalty if state.day > 16 else cfg.carrot_labor_penalty
+            return max(0.0, base_roi - penalty)
+
+        # 3. Dynamic Melon Viability (100% Market & Maturity Driven - NO static day cutoff!)
+        if crop == "MELON":
+            maturity_day = state.day + 10
+            if maturity_day > 30:
+                return 0.0  # Physical impossibility: cannot mature before Day 30
+            roi = base_roi * 1.3
+            if state.day > 15:
+                mc_prices = self._get_mc_prices(state, maturity_day)
+                mc_mean = mc_prices.get("MELON", (0.0, 0.0, 0.0))[0]
+                spot_price = state.prices.get("MELON", 0)
+                if mc_mean < 140.0 and spot_price < 170.0:
+                    return 0.0
+            return roi
+
+        # 4. Dynamic Strawberry Viability (100% Market & Maturity Driven - NO static day cutoff!)
+        if crop == "STRAWBERRY":
+            first_harvest_day = state.day + 4
+            if first_harvest_day > 30:
+                return 0.0  # Physical impossibility: cannot yield 1st harvest before Day 30
+            roi = base_roi * (1.5 if state.day < 12 else 1.25)
+            if state.day > 18:
+                mc_prices = self._get_mc_prices(state, first_harvest_day)
+                mc_mean = mc_prices.get("STRAWBERRY", (0.0, 0.0, 0.0))[0]
+                spot_price = state.prices.get("STRAWBERRY", 0)
+                if mc_mean < 75.0 and spot_price < 95.0:
+                    return 0.0
+            return roi
 
         if base_roi <= 0.0:
             return 0.0
 
-        # 1. Apply Monte Carlo Price Adjustment if future shop uncertainty exists
+        # 5. Monte Carlo Price Adjustment for remaining crops
         from agent.domain.roi import CROPS_SPEC
 
         spec = CROPS_SPEC.get(crop, {})
@@ -84,33 +128,10 @@ class LeaderV11Engine(LeaderV92Engine):
             spot_price = state.prices[crop]
 
             if spot_price > 0:
-                # Blend Monte Carlo expected price with current spot price
                 blended_price = (
-                    1.0 - self.v11_config.mc_weight
-                ) * spot_price + self.v11_config.mc_weight * mc_mean
+                    1.0 - cfg.mc_weight
+                ) * spot_price + cfg.mc_weight * mc_mean
                 adjustment = blended_price / spot_price
-                base_roi *= min(1.4, max(0.6, adjustment))
+                base_roi *= min(1.2, max(0.8, adjustment))
 
         return base_roi
-
-    def _sales(
-        self, state: NormalizedState, projected: dict[str, int] | None = None
-    ) -> list[list[Any]]:
-        orders = super()._sales(state, projected)
-
-        # Speculative holding: if current price < Monte Carlo P90 and liquidity is high, hold stock
-        if not self._closing(state) and state.money > 1500:
-            mc_prices = self._get_mc_prices(state, min(30, state.day + 3))
-            filtered_orders: list[list[Any]] = []
-            for order in orders:
-                if len(order) > 1 and order[0] == "SELL":
-                    item = str(order[1])
-                    if item in mc_prices and item in state.prices:
-                        _mc_mean, _p10, p90 = mc_prices[item]
-                        if state.prices[item] < p90 * 0.70:
-                            # Skip this sale to hold for higher Monte Carlo projected price
-                            continue
-                filtered_orders.append(order)
-            return filtered_orders
-
-        return orders

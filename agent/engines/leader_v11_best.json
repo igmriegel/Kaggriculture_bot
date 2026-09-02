@@ -1,0 +1,8 @@
+{
+    "wheat_labor_penalty": 5.019015322200634,
+    "carrot_labor_penalty": 3.4969540941603245,
+    "carrot_late_penalty": 2.186986744793202,
+    "mc_weight": 0.05026331141870719,
+    "min_cash_buffer_livestock": 730,
+    "double_animal_buy_threshold": 1264
+}
