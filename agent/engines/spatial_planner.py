@@ -49,7 +49,7 @@ def prioritize_unlocked_tiles_by_shed_proximity(
 
 
 def solve_linear_assignment(cost_matrix: list[list[int]]) -> list[int]:
-    """Simple exact matching for small worker counts (N <= 4)."""
+    """Exact optimal assignment using scipy Hungarian algorithm O(n^3)."""
     n_workers = len(cost_matrix)
     if n_workers == 0:
         return []
@@ -57,33 +57,16 @@ def solve_linear_assignment(cost_matrix: list[list[int]]) -> list[int]:
     if n_tasks == 0:
         return [-1] * n_workers
 
-    import itertools
+    import numpy as np
+    from scipy.optimize import linear_sum_assignment as scipy_lsa
 
-    if n_tasks >= n_workers:
-        best_cost = float("inf")
-        best_perm: tuple[int, ...] = tuple(range(n_workers))
-        for perm in itertools.permutations(range(n_tasks), n_workers):
-            cost = sum(cost_matrix[w][perm[w]] for w in range(n_workers))
-            if cost < best_cost:
-                best_cost = cost
-                best_perm = perm
-        return list(best_perm)
-    else:
-        # Fewer tasks than workers: some workers get -1
-        best_cost = float("inf")
-        best_assignment = [-1] * n_workers
-        for worker_subset in itertools.combinations(range(n_workers), n_tasks):
-            for task_perm in itertools.permutations(range(n_tasks)):
-                cost = sum(
-                    cost_matrix[w][t] for w, t in zip(worker_subset, task_perm, strict=False)
-                )
-                if cost < best_cost:
-                    best_cost = cost
-                    curr = [-1] * n_workers
-                    for w, t in zip(worker_subset, task_perm, strict=False):
-                        curr[w] = t
-                    best_assignment = curr
-        return best_assignment
+    arr = np.array(cost_matrix)
+    row_ind, col_ind = scipy_lsa(arr)
+    assignment = [-1] * n_workers
+    for r, c in zip(row_ind, col_ind, strict=False):
+        if r < n_workers and c < n_tasks:
+            assignment[int(r)] = int(c)
+    return assignment
 
 
 class SpatialPlanner:

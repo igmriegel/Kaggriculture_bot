@@ -9,8 +9,8 @@ farm-playing agent feel calm and dependable. Strategy code stays separate from
 the game adapter and runner, so you can improve the bot without rewriting the
 submission boundary each time.
 
-The current submission candidate is **`leader-v2`**, a deterministic cycle
-planner benchmarked from leader replays. It creates a daily economic budget,
+The current submission candidate is **`leader-v9-1`**, a deterministic cycle
+planner aligned to leader replays (Crop Dusta). It creates a daily economic budget,
 explicit production goals, and exclusive unit-task reservations before acting.
 When a command cannot be established from the observation, the submission
 boundary falls back to `PASS` rather than inventing a mechanic.
@@ -23,10 +23,11 @@ boundary falls back to `PASS` rather than inventing a mechanic.
 - Static HTML reports per submission, with win/tie/loss summaries, explicit
   our-submission versus opponent scoring, and per-turn moves/errors.
 - Built-in PASS, deterministic-random, and self-play scenarios.
-- Seven engines: a conservative baseline, `heuristic-v1`, `competitive`,
-  `leader-inspired`, `leader-v2`, `leader-v3`, and the high-performance `leader-v4`.
-`leader-v4` provides dynamic, market-driven crop scoring, livestock scaling,
-and workload-based Fibonacci hiring without hardcoded static gameplay.
+- Engines: a conservative baseline, `heuristic-v1`, `competitive`,
+  `leader-inspired`, `leader-v2`, `leader-v3`, `leader-v4`, `leader-v5`,
+  `leader-v6`, `leader-v7`, `leader-v8`, `leader-v9`, `leader-v9-1`, and `leader-v10`.
+`leader-v9-1` replicates the exact opening book (4 hires, 2 COW, 2 SHEEP)
+and wheat monopoly strategy from leader replays.
 - A submission packager that produces a tarball with `main.py` at its root.
 - Unit tests and quality gates for the public harness and the V1 policy.
 

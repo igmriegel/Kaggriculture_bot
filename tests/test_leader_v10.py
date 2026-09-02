@@ -207,7 +207,9 @@ class TestLeaderV10Engine:
             "consecutive_unwatered": 0,
             "yield_units": 0,
         }
-        opponent_tiles = [[opp_melon_tile] * 10 for _ in range(2)] + [[None] * 10 for _ in range(8)]
+        opponent_tiles: list[list[dict[str, Any] | None]] = [
+            [opp_melon_tile] * 10 for _ in range(2)
+        ] + [[None] * 10 for _ in range(8)]
         # We need a market that has MELON, STRAWBERRY, etc.
         obs = _observation(
             day=5,

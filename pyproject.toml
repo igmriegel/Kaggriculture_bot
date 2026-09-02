@@ -7,7 +7,13 @@ name = "kaggriculture-bot"
 version = "0.1.0"
 description = "A reproducible harness and extensible agent for Kaggriculture."
 requires-python = ">=3.11"
-dependencies = ["pydantic>=2.11,<3"]
+dependencies = [
+    "pydantic>=2.11,<3",
+    "numpy>=1.26,<3",
+    "scipy>=1.11,<2",
+    "scikit-learn>=1.9.0",
+    "joblib>=1.6.0",
+]
 
 [dependency-groups]
 dev = [
