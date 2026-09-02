@@ -21,12 +21,13 @@ from agent.engines.leader_v6 import (
 )
 from agent.engines.leader_v7 import LeaderV7Engine
 from agent.engines.leader_v8 import LeaderV8Config, LeaderV8Engine
+from agent.engines.leader_v9 import LeaderV9Config, LeaderV9Engine
 
 _V9_ANIMAL_COST = {"COW": 400, "SHEEP": 500, "GOOSE": 300}
 
 
 @dataclass(frozen=True)
-class V10Config(LeaderV8Config):
+class V10Config(LeaderV9Config):
     """Configurable genes for genetic algorithm optimization."""
 
     # Closing parameters
@@ -81,11 +82,11 @@ class V10Config(LeaderV8Config):
     marginal_sale_price_ratio_floor: float = 0.45
 
 
-class LeaderV10Engine(LeaderV8Engine):
+class LeaderV10Engine(LeaderV9Engine):
     """
     Tenth generation engine.
     Parameterizes heuristics into V10Config for evolutionary optimization (Genetic Algorithm).
-    Inherits V8 core but features intelligent closing scaling and dynamic crop capping.
+    Inherits V9 core and features intelligent closing scaling and dynamic crop capping.
     """
 
     def __init__(self, config: V10Config | None = None) -> None:

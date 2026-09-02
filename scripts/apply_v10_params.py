@@ -5,6 +5,7 @@ from pathlib import Path
 
 def main():
     candidates = [
+        Path("reports/kaggle/best_optuna_params.json"),
         Path("agent/engines/leader_v10_best.json"),
         Path("reports/kaggle/best_result.json"),
         Path("reports/kaggle/leader_v10_best.json"),
@@ -38,6 +39,7 @@ def main():
     for key, value in best_params.items():
         # Match pattern: key: type = value
         # Matches e.g. "closing_day: int = 26" or "melon_roi_multiplier: float = 1.5"
+        pattern = rf"({re.escape(key)}:\s*[\w\.]+\s*=\s*)[^\n#]+"
         updated_content = re.sub(
             pattern, lambda m, val=value: m.group(1) + str(val), updated_content
         )
